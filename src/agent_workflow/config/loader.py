@@ -59,8 +59,36 @@ def _expand_env(value: str, env: EnvResolver | None = None) -> str:
     return env.resolve(value)
 
 
+def _check_forbidden_keys(
+    data: dict[str, Any],
+    forbidden: list[str],
+    entity_type: str,
+    entity_name: str,
+):
+    """检查字典中是否包含禁止的 key，命中则抛 ValueError。"""
+    for key in forbidden:
+        if key in data:
+            raise ValueError(
+                f"{entity_type} '{entity_name}' 包含禁止字段 '{key}'。"
+                f" {entity_type} 不应定义 '{key}'，请从配置中移除。"
+            )
+
+
 def load_task(data: dict[str, Any]) -> TaskModel:
-    """从字典加载 TaskModel。"""
+    """从字典加载 TaskModel。
+
+    Task 禁止出现: transition、guard、retry、validator、provider、runtime。
+    命中时抛 ValueError。
+    """
+    _check_forbidden_keys(
+        data,
+        [
+            "transition", "transitions", "guard", "guards", "retry",
+            "validator", "provider", "runtime", "transport",
+        ],
+        entity_type="Task",
+        entity_name=data.get("name", "(unknown)"),
+    )
     return TaskModel(
         name=data.get("name", ""),
         instruction=data.get("instruction", ""),
@@ -86,7 +114,20 @@ def load_state(data: dict[str, Any]) -> StateModel:
 
 
 def load_role(data: dict[str, Any]) -> RoleModel:
-    """从字典加载 RoleModel。"""
+    """从字典加载 RoleModel。
+
+    Role 禁止出现: capability、policy、validator、contract、guard。
+    命中时抛 ValueError。
+    """
+    _check_forbidden_keys(
+        data,
+        [
+            "capability", "capabilities", "policy", "validator",
+            "contract", "guard", "guards",
+        ],
+        entity_type="Role",
+        entity_name=data.get("name", "(unknown)"),
+    )
     # 支持简化格式: planner: codex_plan → {name: planner, agent: codex_plan}
     return RoleModel(
         name=data.get("name", ""),

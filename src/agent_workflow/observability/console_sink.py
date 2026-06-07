@@ -21,23 +21,23 @@ class ConsoleSink:
     根据事件类型输出不同格式的行到 stderr（避免与 Agent 输出到 stdout 混在一起）。
     """
 
-    # 事件类型 → 输出格式
+    # 事件类型 → 输出格式（使用 ASCII 标记以兼容 Windows 默认终端编码）
     FORMATS = {
-        "WorkflowStarted": "[WORKFLOW] Start: {workflow_id} → {goal}",
-        "WorkflowCompleted": "[WORKFLOW] ✅ Completed: {run_id}",
-        "WorkflowFailed": "[WORKFLOW] ❌ Failed: {error}",
-        "WorkflowCancelled": "[WORKFLOW] 🛑 Cancelled: {reason}",
+        "WorkflowStarted": "[WORKFLOW] Start: {workflow_id} -> {goal}",
+        "WorkflowCompleted": "[WORKFLOW] [OK] Completed: {run_id}",
+        "WorkflowFailed": "[WORKFLOW] [FAIL] Failed: {error}",
+        "WorkflowCancelled": "[WORKFLOW] [STOP] Cancelled: {reason}",
         "StateEntered": "[STATE] Enter: {state}",
         "TaskFinished": "[RESULT] decision={decision} status={status}",
-        "AgentStarted": "[AGENT] Start: {task} ← {agent}",
+        "AgentStarted": "[AGENT] Start: {task} <- {agent}",
         "AgentOutput": "[{agent}] {content}",
         "TaskResultWritten": "[RESULT] TaskResult written: {state}",
-        "SkillAdoptionWritten": "[SKILL] Adoption: {state} ← {skills}",
-        "ValidatorStarted": "[VALIDATOR] Start: {validator} → {state}",
-        "ValidatorFinished": "[VALIDATOR] {'✅' if passed else '❌'}: {state}",
-        "ArtifactPromoted": "[ARTIFACT] Promoted: {name} → {artifact_path}",
-        "TransitionSelected": "[TRANSITION] {current_state} → {next_state}",
-        "GuardFailed": "[GUARD] ❌ {guard_type}: {reason}",
+        "SkillAdoptionWritten": "[SKILL] Adoption: {state} <- {skills}",
+        "ValidatorStarted": "[VALIDATOR] Start: {validator} -> {state}",
+        "ValidatorFinished": "[VALIDATOR] [{status_text}]: {state}",
+        "ArtifactPromoted": "[ARTIFACT] Promoted: {name} -> {artifact_path}",
+        "TransitionSelected": "[TRANSITION] {current_state} -> {next_state}",
+        "GuardFailed": "[GUARD] [FAIL] {guard_type}: {reason}",
         "Heartbeat": "",  # 不打印心跳
     }
 
@@ -55,8 +55,7 @@ class ConsoleSink:
         if fmt is None:
             # 未知事件类型，输出基本信息
             payload = event.get("payload", {})
-            self.stream.write(f"[{event_type}] {payload}\n")
-            self.stream.flush()
+            self._safe_write(f"[{event_type}] {payload}\n")
             return
 
         # 构建格式化上下文
@@ -79,7 +78,23 @@ class ConsoleSink:
         else:
             prefix = "  "
 
-        self.stream.write(f"{prefix}{line}\n")
+        self._safe_write(f"{prefix}{line}\n")
+
+    def _safe_write(self, text: str):
+        """安全写入，fallback 到 ASCII-only 以兼容 Windows 默认终端编码。"""
+        try:
+            self.stream.write(text)
+        except UnicodeEncodeError:
+            # Fallback: 替换不可编码字符
+            safe = text.encode(self.stream.encoding or 'ascii', errors='replace').decode(
+                self.stream.encoding or 'ascii', errors='replace'
+            )
+            try:
+                self.stream.write(safe)
+            except Exception:
+                # 最终 fallback: 纯 ASCII
+                ascii_safe = text.encode('ascii', errors='replace').decode('ascii')
+                self.stream.write(ascii_safe)
         self.stream.flush()
 
     def flush(self):

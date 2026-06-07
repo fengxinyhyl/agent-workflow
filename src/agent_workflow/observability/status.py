@@ -32,7 +32,7 @@ def get_status(run_id: str) -> str:
 
     # 检查运行目录是否存在
     if not os.path.exists(run_root):
-        return f"❌ 未找到运行: {run_id}\n路径: {run_root}"
+        return f"[FAIL] 未找到运行: {run_id}\n路径: {run_root}"
 
     # 读取 workflow_state.json
     state_path = os.path.join(run_root, "workflow_state.json")
@@ -89,15 +89,25 @@ def get_status(run_id: str) -> str:
         last_result = task_results.get(last_state, {})
         last_decision = last_result.get("decision", "none")
 
-    # 当前 task 和 agent
+    # 当前 task 和 agent — 优先从 workflow_variables 读取
     current_task = state_data.get("current_task", "") or ""
-    last_result = task_results.get(current_state, {})
-    current_agent = last_result.get("agent", "")
+    wf_vars = state_data.get("workflow_variables", {})
+    current_agent = (
+        wf_vars.get("_current_agent", "") or
+        task_results.get(current_state, {}).get("agent", "")
+    )
+    # 如果当前 state 没有 task_result，回退到最后一个有 agent 的 task_result
+    if not current_agent and task_results:
+        for s in reversed(state_history):
+            agent = task_results.get(s, {}).get("agent", "")
+            if agent:
+                current_agent = agent
+                break
 
     # 构建输出
     lines = []
     if is_cancelled:
-        lines.append(f"⚠️  已取消: {cancel_reason}" if cancel_reason else "⚠️  已取消")
+        lines.append(f"[WARN] 已取消: {cancel_reason}" if cancel_reason else "[WARN] 已取消")
 
     lines.append(f"Current State:    {current_state}")
     lines.append(f"Running:          {duration_str}")
@@ -107,7 +117,7 @@ def get_status(run_id: str) -> str:
     lines.append(f"Last Decision:    {last_decision}")
 
     if stale:
-        lines.append(f"⚠️  STALE: {stale_reason}")
+        lines.append(f"[WARN] STALE: {stale_reason}")
 
     if state_history:
         lines.append(f"\nState History:")

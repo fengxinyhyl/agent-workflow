@@ -55,6 +55,7 @@ class AgentInput:
 
     task: TaskConfig = field(default_factory=TaskConfig)
     context: RunContext = field(default_factory=RunContext)
+    state_name: str = ""  # 显式 state 名（由 Runner 设置，用于 adapter 定位 staging/artifact 路径）
     skill_context: str = ""
     skill_policy: dict[str, Any] = field(default_factory=dict)
     expected_task_result_schema: dict[str, Any] = field(default_factory=dict)

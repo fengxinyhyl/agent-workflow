@@ -1,0 +1,330 @@
+{
+  "run_id": "run_260607-211529_6ee6f4",
+  "workflow_id": "software-dev",
+  "goal": "二次审核冒烟",
+  "project_root": "F:\\code\\stock\\agent-workflow",
+  "run_root": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-211529_6ee6f4",
+  "current_state": "failed",
+  "current_task": "plan",
+  "workflow_variables": {
+    "_workflow_snapshot": {
+      "name": "software-dev",
+      "version": "1",
+      "description": "Codex Plan → Claude Review → Codex Revise → Claude Review → Codex Execute → Claude Audit → Summary\n",
+      "tasks": {
+        "plan": {
+          "name": "plan",
+          "instruction": "根据 goal 编写实现计划。计划必须包含:\n1. 实现步骤（bite-sized 为佳）\n2. 涉及的文件列表\n3. 测试策略\n4. 风险点\n5. 停止规则\n",
+          "role": "planner",
+          "inputs": [
+            "goal",
+            "project_context"
+          ],
+          "output": "plan_doc",
+          "description": "",
+          "timeout_seconds": 3600,
+          "allowed_decisions": [
+            "done",
+            "fail",
+            "blocked"
+          ]
+        },
+        "review_plan": {
+          "name": "review_plan",
+          "instruction": "审查实现计划。从以下维度评估:\n1. 完整性 — 是否覆盖所有功能点\n2. 正确性 — 技术方案是否可行\n3. 测试覆盖 — 是否定义了足够的测试\n4. 风险 — 是否识别了关键风险\n5. 复杂度 — 是否可以简化\n\n输出 approve（可以执行）、revise（需要修改）或 reject（不可行）。\n",
+          "role": "reviewer",
+          "inputs": [
+            "plan_doc",
+            "project_context"
+          ],
+          "output": "review_doc",
+          "description": "",
+          "timeout_seconds": 3600,
+          "allowed_decisions": [
+            "approve",
+            "revise",
+            "reject"
+          ]
+        },
+        "revise_plan": {
+          "name": "revise_plan",
+          "instruction": "根据审查意见修改实现计划。必须逐条回应审查意见，\n说明哪些采纳、哪些不采纳及原因。\n",
+          "role": "planner",
+          "inputs": [
+            "plan_doc",
+            "review_doc",
+            "revision_instructions"
+          ],
+          "output": "plan_doc",
+          "description": "",
+          "timeout_seconds": 3600,
+          "allowed_decisions": [
+            "done",
+            "fail",
+            "blocked"
+          ]
+        },
+        "execute": {
+          "name": "execute",
+          "instruction": "按照已批准的实现计划执行代码变更。\n严格按照计划步骤进行，不要跳过验证步骤。\n如果计划在执行中发现问题，输出 blocked 并说明原因。\n",
+          "role": "executor",
+          "inputs": [
+            "plan_doc",
+            "project_context"
+          ],
+          "output": "execution_report",
+          "description": "",
+          "timeout_seconds": 3600,
+          "allowed_decisions": [
+            "done",
+            "fail",
+            "blocked"
+          ]
+        },
+        "audit": {
+          "name": "audit",
+          "instruction": "审计代码变更。检查:\n1. 是否按照计划执行\n2. 代码质量和风格\n3. 测试通过\n4. 无安全/性能问题\n5. 边界情况覆盖\n\n输出 approve（通过）、revise（需要修改）或 reject（不可接受）。\n",
+          "role": "auditor",
+          "inputs": [
+            "plan_doc",
+            "execution_report",
+            "diff"
+          ],
+          "output": "audit_report",
+          "description": "",
+          "timeout_seconds": 3600,
+          "allowed_decisions": [
+            "approve",
+            "revise",
+            "reject"
+          ]
+        },
+        "revise_execute": {
+          "name": "revise_execute",
+          "instruction": "根据审计意见修改代码。必须逐条回应审计意见。\n",
+          "role": "executor",
+          "inputs": [
+            "plan_doc",
+            "execution_report",
+            "audit_report",
+            "revision_instructions"
+          ],
+          "output": "execution_report",
+          "description": "",
+          "timeout_seconds": 3600,
+          "allowed_decisions": [
+            "done",
+            "fail",
+            "blocked"
+          ]
+        },
+        "summary": {
+          "name": "summary",
+          "instruction": "生成工作流总结报告。包含:\n1. 执行摘要\n2. 关键决策\n3. 产物流清单\n4. 待办事项\n",
+          "role": "planner",
+          "inputs": [
+            "plan_doc",
+            "execution_report",
+            "audit_report"
+          ],
+          "output": "summary_report",
+          "description": "",
+          "timeout_seconds": 3600,
+          "allowed_decisions": [
+            "done",
+            "fail"
+          ]
+        }
+      },
+      "states": {
+        "codex_plan": {
+          "name": "codex_plan",
+          "task": "plan",
+          "on": {
+            "done": "claude_review_plan",
+            "fail": "failed",
+            "blocked": "failed"
+          },
+          "default": "failed",
+          "description": "Codex 编写实现计划",
+          "terminal": false
+        },
+        "claude_review_plan": {
+          "name": "claude_review_plan",
+          "task": "review_plan",
+          "on": {
+            "approve": "codex_execute",
+            "revise": "codex_revise_plan",
+            "reject": "failed"
+          },
+          "default": "failed",
+          "description": "Claude 审查实现计划",
+          "terminal": false
+        },
+        "codex_revise_plan": {
+          "name": "codex_revise_plan",
+          "task": "revise_plan",
+          "on": {
+            "done": "claude_review_plan",
+            "fail": "failed",
+            "blocked": "failed"
+          },
+          "default": "failed",
+          "description": "Codex 根据审查意见修改计划",
+          "terminal": false
+        },
+        "codex_execute": {
+          "name": "codex_execute",
+          "task": "execute",
+          "on": {
+            "done": "claude_audit",
+            "fail": "failed",
+            "blocked": "claude_audit"
+          },
+          "default": "failed",
+          "description": "Codex 执行代码变更",
+          "terminal": false
+        },
+        "claude_audit": {
+          "name": "claude_audit",
+          "task": "audit",
+          "on": {
+            "approve": "summary",
+            "revise": "codex_revise_execute",
+            "reject": "failed"
+          },
+          "default": "failed",
+          "description": "Claude 审计代码变更",
+          "terminal": false
+        },
+        "codex_revise_execute": {
+          "name": "codex_revise_execute",
+          "task": "revise_execute",
+          "on": {
+            "done": "claude_audit",
+            "fail": "failed",
+            "blocked": "failed"
+          },
+          "default": "failed",
+          "description": "Codex 根据审计意见修改代码",
+          "terminal": false
+        },
+        "summary": {
+          "name": "summary",
+          "task": "summary",
+          "on": {
+            "done": "done",
+            "fail": "failed"
+          },
+          "default": "failed",
+          "description": "生成工作流总结报告",
+          "terminal": false
+        },
+        "done": {
+          "name": "done",
+          "task": "",
+          "on": {},
+          "default": "failed",
+          "description": "工作流成功完成",
+          "terminal": "true"
+        },
+        "failed": {
+          "name": "failed",
+          "task": "",
+          "on": {},
+          "default": "failed",
+          "description": "工作流失败终止",
+          "terminal": "true"
+        },
+        "cancelled": {
+          "name": "cancelled",
+          "task": "",
+          "on": {},
+          "default": "failed",
+          "description": "工作流被取消",
+          "terminal": "true"
+        }
+      },
+      "roles": {
+        "planner": {
+          "name": "planner",
+          "agent": "codex_plan",
+          "fallback_agents": [
+            "claude_review"
+          ],
+          "description": "实现计划编写"
+        },
+        "reviewer": {
+          "name": "reviewer",
+          "agent": "claude_review",
+          "fallback_agents": [
+            "claude_audit"
+          ],
+          "description": "计划审查"
+        },
+        "executor": {
+          "name": "executor",
+          "agent": "codex_execute",
+          "fallback_agents": [
+            "codex_plan"
+          ],
+          "description": "代码执行"
+        },
+        "auditor": {
+          "name": "auditor",
+          "agent": "claude_audit",
+          "fallback_agents": [
+            "claude_review"
+          ],
+          "description": "代码审计"
+        }
+      },
+      "guards": {
+        "max_visits": 5,
+        "max_duration_minutes": 480,
+        "max_retries": 3,
+        "on_guard_failed": "failed"
+      },
+      "initial_state": "codex_plan",
+      "terminal_states": [
+        "done",
+        "failed",
+        "cancelled"
+      ],
+      "required_skills": [
+        "agent-workflow-lifecycle"
+      ]
+    },
+    "_current_agent": "codex_plan"
+  },
+  "artifacts": {},
+  "state_history": [
+    "codex_plan"
+  ],
+  "task_results": {
+    "codex_plan": {
+      "schema_version": 1,
+      "task_id": "plan",
+      "state": "plan",
+      "agent": "codex",
+      "status": "failed",
+      "decision": "fail",
+      "summary": "执行异常: [WinError 2] 系统找不到指定的文件。",
+      "artifacts": [],
+      "execution": {
+        "started_at": "2026-06-07T21:15:29.211506+08:00",
+        "finished_at": "2026-06-07T21:15:29.211506+08:00",
+        "duration_seconds": 0,
+        "attempt": 1,
+        "exit_code": 1
+      },
+      "issues": [],
+      "next_inputs": {}
+    }
+  },
+  "attempts": {
+    "codex_plan": 1
+  },
+  "started_at": "2026-06-07T21:15:29.176511+08:00",
+  "updated_at": "2026-06-07T21:15:29.215508+08:00"
+}

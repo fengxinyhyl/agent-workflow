@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import os
 import json
-import subprocess
 import shutil
 from typing import Any
 
@@ -40,74 +39,101 @@ class ClaudeCLI(BaseAgent):
 
     def execute(self, agent_input: AgentInput) -> TaskResult:
         """通过 Claude CLI 执行任务。"""
-        state_name = agent_input.task.name
+        state_name = agent_input.state_name or agent_input.context.current_state or agent_input.task.name
         started_at = _now_iso()
 
-        # 构建 prompt
-        prompt = agent_input.build_prompt()
-
-        # 解析 cwd
-        cwd = self._resolve_cwd(agent_input)
-
         # 确保 staging 目录存在
-        staging_dir = os.path.join(
-            agent_input.context.run_root, "staging", state_name
-        )
+        staging_dir = os.path.join(agent_input.context.run_root, "staging", state_name)
         os.makedirs(staging_dir, exist_ok=True)
 
         # 写入 prompt 文件（Claude CLI 可以从文件读取）
         prompt_path = os.path.join(staging_dir, "prompt.md")
         with open(prompt_path, "w", encoding="utf-8") as f:
-            f.write(prompt)
+            f.write(agent_input.build_prompt())
+
+        # 检查 command 是否可用
+        if not shutil.which(self.command):
+            return TaskResult(
+                schema_version=1,
+                task_id=agent_input.task.name,
+                state=state_name,
+                agent=self.name,
+                status="blocked",
+                decision="blocked",
+                summary=f"Claude CLI command '{self.command}' 未在 PATH 中找到或未配置",
+                execution=ExecutionMetadata(
+                    started_at=started_at,
+                    finished_at=_now_iso(),
+                    duration_seconds=0,
+                    attempt=1,
+                    exit_code=127,
+                ),
+                issues=[],
+            )
+
+        # 解析 cwd
+        cwd = self._resolve_cwd(agent_input)
 
         # 构建命令
         cmd = self._build_command(prompt_path)
 
-        # 执行
-        try:
-            result = subprocess.run(
-                cmd,
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout,
-                shell=False,
+        # 执行（带取消轮询）
+        process, status, exit_code, stdout, stderr = self._run_with_cancel_poll(
+            cmd,
+            cwd=cwd,
+            timeout=self.timeout,
+            agent_input=agent_input,
+        )
+
+        finished_at = _now_iso()
+
+        if status == "cancelled":
+            return TaskResult(
+                schema_version=1,
+                task_id=agent_input.task.name,
+                state=state_name,
+                agent=self.name,
+                status="cancelled",
+                decision="blocked",
+                summary="任务已被取消",
+                execution=ExecutionMetadata(
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_seconds=0,
+                    attempt=1,
+                    exit_code=-1,
+                ),
+                issues=[],
             )
-        except subprocess.TimeoutExpired:
+
+        if status == "timeout":
             return self._create_task_result(
-                state_name, state_name,
+                agent_input.task.name, state_name,
                 status="timeout",
                 decision="fail",
                 summary=f"执行超时（{self.timeout}s）",
             )
-        except Exception as e:
-            return self._create_task_result(
-                state_name, state_name,
-                status="failed",
-                decision="fail",
-                summary=f"执行异常: {e}",
-            )
 
-        finished_at = _now_iso()
+        # 构建模拟 subprocess.CompletedProcess 用于解析
+        class _FakeResult:
+            returncode = exit_code
+            stdout = stdout
+            stderr = stderr
 
-        # 解析输出
-        task_result = self._parse_output(state_name, result, agent_input)
+        fake_result = _FakeResult()
+        task_result = self._parse_output(state_name, fake_result, agent_input)
         task_result.execution = ExecutionMetadata(
             started_at=started_at,
             finished_at=finished_at,
             duration_seconds=0,
             attempt=1,
-            exit_code=result.returncode,
+            exit_code=exit_code,
         )
 
         return task_result
 
     def _build_command(self, prompt_path: str) -> list[str]:
         """构建 Claude CLI 命令。"""
-        # P0 fallback
-        if not shutil.which(self.command):
-            return ["echo", f"[ClaudeCLI P0 fallback] {self.command} not found in PATH"]
-
         return [
             self.command,
             "--print",

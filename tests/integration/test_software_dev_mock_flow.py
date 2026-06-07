@@ -26,6 +26,24 @@ def _has_examples():
     return os.path.exists(EXAMPLES_DIR)
 
 
+def _create_mock_skills_dir(tmpdir: str, skill_names: list[str] | None = None) -> str:
+    """创建临时 skills 目录，包含所需的 mock skill 文件。
+
+    software-dev workflow 要求 agent-workflow-lifecycle skill，
+    测试需提供 mock skills_dir 以避免 required_skills_missing fail-fast。
+    """
+    if skill_names is None:
+        skill_names = ["agent-workflow-lifecycle"]
+    skills_dir = os.path.join(tmpdir, "skills")
+    for name in skill_names:
+        skill_dir = os.path.join(skills_dir, name)
+        os.makedirs(skill_dir, exist_ok=True)
+        skill_yaml = os.path.join(skill_dir, "skill.yaml")
+        with open(skill_yaml, "w", encoding="utf-8") as f:
+            f.write(f"name: {name}\ndescription: Mock skill for testing\nversion: '1'\n")
+    return skills_dir
+
+
 class TestSoftwareDevMockFlow:
     """software-dev 完整 Mock Flow 测试。"""
 
@@ -89,6 +107,7 @@ class TestSoftwareDevMockFlow:
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = Runner(
                 workflow=wf,
+                skills_dir=_create_mock_skills_dir(tmpdir),
                 goal="实现一个简单的 Hello World CLI 工具",
                 project_root=tmpdir,
             )
@@ -155,6 +174,154 @@ class TestSoftwareDevMockFlow:
         # 未知 decision 走 default
         result = sm.resolve_transition("claude_review_plan", "unknown")
         assert result.next_state == "failed"
+
+    @pytest.mark.skipif(not _has_examples(), reason="示例目录不存在")
+    def test_events_jsonl_generated(self):
+        """P0a: 验证 events.jsonl 生成。"""
+        wf_path = os.path.join(EXAMPLES_DIR, "workflow.yaml")
+        wf = load_workflow(wf_path)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = Runner(
+                workflow=wf,
+                skills_dir=_create_mock_skills_dir(tmpdir),
+                goal="测试 events.jsonl 生成",
+                project_root=tmpdir,
+            )
+
+            # 注入 mock resolve
+            runner._resolve_agent = lambda tm=None: "mock"
+
+            run_id = runner.start()
+            try:
+                runner.run()
+            except Exception:
+                pass
+
+            # 验证 events.jsonl 存在
+            run_root = os.path.join(tmpdir, ".agent-workflow", "runs", run_id)
+            events_path = os.path.join(run_root, "logs", "events.jsonl")
+            assert os.path.exists(events_path), f"events.jsonl 应存在: {events_path}"
+
+            # 读取事件
+            events = []
+            with open(events_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        events.append(json.loads(line))
+
+            assert len(events) > 0, "events.jsonl 应包含事件"
+            event_types = [e["event"] for e in events]
+            assert "WorkflowStarted" in event_types
+            assert "StateEntered" in event_types
+            assert "AgentStarted" in event_types
+            # 应有 WorkflowCompleted 或 WorkflowCancelled
+            assert any(t in event_types for t in ("WorkflowCompleted", "WorkflowCancelled"))
+
+    @pytest.mark.skipif(not _has_examples(), reason="示例目录不存在")
+    def test_task_result_json_written(self):
+        """P0c: 验证 staging/<state>/task_result.json 写入。"""
+        wf_path = os.path.join(EXAMPLES_DIR, "workflow.yaml")
+        wf = load_workflow(wf_path)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = Runner(
+                workflow=wf,
+                skills_dir=_create_mock_skills_dir(tmpdir),
+                goal="测试 task_result.json",
+                project_root=tmpdir,
+            )
+            runner._resolve_agent = lambda tm=None: "mock"
+
+            run_id = runner.start()
+            try:
+                runner.run()
+            except Exception:
+                pass
+
+            run_root = os.path.join(tmpdir, ".agent-workflow", "runs", run_id)
+            staging_root = os.path.join(run_root, "staging")
+
+            # 至少有一个 state 的 staging 目录包含 task_result.json
+            found = False
+            if os.path.exists(staging_root):
+                for state_dir in os.listdir(staging_root):
+                    tr_path = os.path.join(staging_root, state_dir, "task_result.json")
+                    if os.path.exists(tr_path):
+                        found = True
+                        # 验证是可解析 JSON
+                        with open(tr_path, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                        assert "task_id" in data
+                        assert "decision" in data
+                        break
+
+            assert found, "至少应有一个 task_result.json 被写入"
+
+    @pytest.mark.skipif(not _has_examples(), reason="示例目录不存在")
+    def test_workflow_snapshot_saved(self):
+        """P0b: 验证 workflow snapshot 保存到 context。"""
+        wf_path = os.path.join(EXAMPLES_DIR, "workflow.yaml")
+        wf = load_workflow(wf_path)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = Runner(
+                workflow=wf,
+                skills_dir=_create_mock_skills_dir(tmpdir),
+                goal="测试 snapshot",
+                project_root=tmpdir,
+            )
+            runner._resolve_agent = lambda tm=None: "mock"
+
+            run_id = runner.start()
+
+            # 验证 context 中有 _workflow_snapshot
+            assert "_workflow_snapshot" in runner.context.workflow_variables
+            snapshot = runner.context.workflow_variables["_workflow_snapshot"]
+            assert snapshot["name"] == "software-dev"
+            assert "states" in snapshot
+            assert "tasks" in snapshot
+
+            # 运行以确保 JSONLSink 被正确关闭（Windows 文件句柄限制）
+            try:
+                runner.run()
+            except Exception:
+                pass
+
+    @pytest.mark.skipif(not _has_examples(), reason="示例目录不存在")
+    def test_artifact_paths_in_artifacts_dir(self):
+        """P0g: 验证所有正式 artifact 路径在 artifacts/ 下。"""
+        wf_path = os.path.join(EXAMPLES_DIR, "workflow.yaml")
+        wf = load_workflow(wf_path)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = Runner(
+                workflow=wf,
+                skills_dir=_create_mock_skills_dir(tmpdir),
+                goal="测试 artifact 路径",
+                project_root=tmpdir,
+            )
+            runner._resolve_agent = lambda tm=None: "mock"
+
+            run_id = runner.start()
+            try:
+                runner.run()
+            except Exception:
+                pass
+
+            run_root = os.path.join(tmpdir, ".agent-workflow", "runs", run_id)
+
+            # 从 workflow_state.json 检查 artifacts
+            state_path = os.path.join(run_root, "workflow_state.json")
+            if os.path.exists(state_path):
+                with open(state_path, "r", encoding="utf-8") as f:
+                    state_data = json.load(f)
+
+                artifacts = state_data.get("artifacts", {})
+                for name, path in artifacts.items():
+                    assert "artifacts" in path, (
+                        f"artifact '{name}' 路径应在 artifacts/ 下: {path}"
+                    )
 
     @pytest.mark.skipif(not _has_examples(), reason="示例目录不存在")
     def test_guard_prevents_infinite_loop(self):

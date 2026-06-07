@@ -26,6 +26,26 @@ class PromotionResult:
     error: str = ""
 
 
+def _check_path_containment(target_path: str, allowed_base: str) -> bool:
+    """P0g: 检查 target_path resolve 后是否在 allowed_base 之下。
+
+    Args:
+        target_path: 要检查的路径（绝对或相对）
+        allowed_base: 允许的基目录（绝对路径）
+
+    Returns:
+        True 如果 target_path 在 allowed_base 内，False 如果路径逃逸。
+    """
+    try:
+        resolved_target = os.path.realpath(os.path.abspath(target_path))
+        resolved_base = os.path.realpath(os.path.abspath(allowed_base))
+        # 规范化后必须以 allowed_base 开头
+        common = os.path.commonpath([resolved_target, resolved_base])
+        return common == resolved_base
+    except (ValueError, OSError):
+        return False
+
+
 def promote_artifact(
     staging_path: str,
     artifact_path: str,
@@ -36,6 +56,7 @@ def promote_artifact(
 
     规则:
     - 检查 staging 文件是否存在
+    - P0g: 检查 staging/artifact 路径 containment（防止路径穿越）
     - 复制到 artifacts 目录
     - 原 staging 文件保留用于排查
     - 返回 PromotionResult
@@ -45,6 +66,28 @@ def promote_artifact(
         staging_path = os.path.join(run_root, staging_path)
     if not os.path.isabs(artifact_path):
         artifact_path = os.path.join(run_root, artifact_path)
+
+    # P0g: 路径 containment 检查
+    staging_base = os.path.join(run_root, "staging")
+    artifacts_base = os.path.join(run_root, "artifacts")
+
+    if not _check_path_containment(staging_path, staging_base):
+        return PromotionResult(
+            ok=False,
+            artifact_name=artifact_name,
+            staging_path=staging_path,
+            artifact_path=artifact_path,
+            error=f"staging 路径逃逸 run_root: {staging_path}（必须在 {staging_base} 之下）",
+        )
+
+    if not _check_path_containment(artifact_path, artifacts_base):
+        return PromotionResult(
+            ok=False,
+            artifact_name=artifact_name,
+            staging_path=staging_path,
+            artifact_path=artifact_path,
+            error=f"artifact 路径逃逸 run_root: {artifact_path}（必须在 {artifacts_base} 之下）",
+        )
 
     # 检查 staging 文件存在
     if not os.path.exists(staging_path):

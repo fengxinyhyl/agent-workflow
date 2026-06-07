@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "task_id": "plan",
+  "state": "plan",
+  "agent": "codex",
+  "status": "failed",
+  "decision": "fail",
+  "summary": "执行异常: [WinError 2] 系统找不到指定的文件。",
+  "artifacts": [],
+  "execution": {
+    "started_at": "2026-06-07T21:15:29.211506+08:00",
+    "finished_at": "2026-06-07T21:15:29.211506+08:00",
+    "duration_seconds": 0,
+    "attempt": 1,
+    "exit_code": 1
+  },
+  "issues": [],
+  "next_inputs": {}
+}

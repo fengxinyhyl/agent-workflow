@@ -7,7 +7,6 @@ P0: command agent 默认禁用，需要在配置中显式启用。
 from __future__ import annotations
 
 import os
-import subprocess
 from typing import Any
 
 from .base import BaseAgent
@@ -40,22 +39,22 @@ class CommandAgent(BaseAgent):
 
     def execute(self, agent_input: AgentInput) -> TaskResult:
         """执行命令。"""
+        state_name = agent_input.state_name or agent_input.context.current_state or agent_input.task.name
         if not self.enabled:
             return self._create_task_result(
-                agent_input.task.name, agent_input.task.name,
+                agent_input.task.name, state_name,
                 status="blocked",
                 decision="blocked",
                 summary="CommandAgent 默认禁用，需在配置中设置 enabled: true",
             )
 
-        state_name = agent_input.task.name
         started_at = _now_iso()
 
         # 构建命令
         cmd = self._build_command(agent_input)
         if not cmd:
             return self._create_task_result(
-                state_name, state_name,
+                agent_input.task.name, state_name,
                 status="invalid_output",
                 decision="fail",
                 summary="命令为空",
@@ -67,7 +66,7 @@ class CommandAgent(BaseAgent):
             validation = validate_command(str(cmd), allow_write=True)
             if not validation.passed:
                 return self._create_task_result(
-                    state_name, state_name,
+                    agent_input.task.name, state_name,
                     status="blocked",
                     decision="blocked",
                     summary=f"命令校验失败: {', '.join(validation.errors)}",
@@ -81,47 +80,57 @@ class CommandAgent(BaseAgent):
         )
         cwd = os.path.abspath(cwd)
 
-        # 执行
-        try:
-            result = subprocess.run(
-                cmd if isinstance(cmd, list) else cmd.split(),
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout,
-                shell=False,
+        # 执行（带取消轮询）
+        process, status, exit_code, stdout, stderr = self._run_with_cancel_poll(
+            cmd if isinstance(cmd, list) else cmd.split(),
+            cwd=cwd,
+            timeout=self.timeout,
+            agent_input=agent_input,
+        )
+
+        finished_at = _now_iso()
+
+        if status == "cancelled":
+            return TaskResult(
+                schema_version=1,
+                task_id=agent_input.task.name,
+                state=state_name,
+                agent=self.name,
+                status="cancelled",
+                decision="blocked",
+                summary="命令执行已被取消",
+                execution=ExecutionMetadata(
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_seconds=0,
+                    attempt=1,
+                    exit_code=-1,
+                ),
+                issues=[],
             )
-        except subprocess.TimeoutExpired:
+
+        if status == "timeout":
             return self._create_task_result(
-                state_name, state_name,
+                agent_input.task.name, state_name,
                 status="timeout",
                 decision="fail",
                 summary=f"命令超时（{self.timeout}s）",
             )
-        except Exception as e:
-            return self._create_task_result(
-                state_name, state_name,
-                status="failed",
-                decision="fail",
-                summary=f"命令执行异常: {e}",
-            )
-
-        finished_at = _now_iso()
 
         return TaskResult(
             schema_version=1,
-            task_id=state_name,
+            task_id=agent_input.task.name,
             state=state_name,
             agent=self.name,
-            status="success" if result.returncode == 0 else "failed",
-            decision="done" if result.returncode == 0 else "fail",
-            summary=f"exit_code={result.returncode}\nstdout: {result.stdout[:500]}\nstderr: {result.stderr[:500]}",
+            status="success" if exit_code == 0 else "failed",
+            decision="done" if exit_code == 0 else "fail",
+            summary=f"exit_code={exit_code}\nstdout: {stdout[:500]}\nstderr: {stderr[:500]}",
             execution=ExecutionMetadata(
                 started_at=started_at,
                 finished_at=finished_at,
                 duration_seconds=0,
                 attempt=1,
-                exit_code=result.returncode,
+                exit_code=exit_code,
             ),
             issues=[],
         )

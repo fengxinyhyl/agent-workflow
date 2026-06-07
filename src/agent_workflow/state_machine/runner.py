@@ -23,6 +23,7 @@ import os
 import time
 import threading
 import uuid
+import json
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
@@ -63,6 +64,7 @@ class Runner:
         run_root: str | None = None,
         agents: dict[str, AgentModel] | None = None,
         event_bus: Any = None,
+        skills_dir: str | None = None,
     ):
         self.workflow = workflow
         self.goal = goal
@@ -87,8 +89,16 @@ class Runner:
         # Agent registry
         self._agent_registry = agents or {}
 
-        # EventBus（延迟导入避免循环依赖）
+        # EventBus
         self._event_bus = event_bus
+        self._event_bus_external = event_bus is not None
+
+        # P0a: JSONLSink 引用（用于 start/run 生命周期管理）
+        self._jsonl_sink = None
+
+        # P0d: Skill adoption
+        self.skills_dir = skills_dir
+        self._adoption = None
 
         # 心跳控制
         self._heartbeat_thread: threading.Thread | None = None
@@ -111,6 +121,32 @@ class Runner:
                 self._event_bus = _NullEventBus()
         return self._event_bus
 
+    def _mount_observability_sinks(self):
+        """P0a: 为 EventBus 挂载默认 sink（ConsoleSink + JSONLSink）。
+
+        仅在 EventBus 非外部注入时挂载（外部 EventBus 已有自己的 sink 配置）。
+        """
+        if self._event_bus_external:
+            return
+
+        bus = self._get_event_bus()
+        if isinstance(bus, _NullEventBus):
+            return
+
+        try:
+            from ..observability.console_sink import ConsoleSink
+            bus.add_sink(ConsoleSink())
+        except ImportError:
+            pass
+
+        try:
+            from ..observability.jsonl_sink import JSONLSink
+            jsonl_path = os.path.join(self.context.run_root, "logs", "events.jsonl")
+            self._jsonl_sink = JSONLSink(jsonl_path)
+            bus.add_sink(self._jsonl_sink)
+        except ImportError:
+            pass
+
     def start(self) -> str:
         """初始化运行上下文并返回 run_id。"""
         self._run_id = _generate_run_id()
@@ -129,6 +165,12 @@ class Runner:
         os.makedirs(os.path.join(run_root, "artifacts"), exist_ok=True)
         os.makedirs(os.path.join(run_root, "logs"), exist_ok=True)
 
+        # P0a: 挂载默认 observability sink（ConsoleSink + JSONLSink）
+        self._mount_observability_sinks()
+
+        # P0b: 保存 workflow snapshot 到 context（供 status/explain 使用）
+        self.context.workflow_variables["_workflow_snapshot"] = self.workflow.to_dict()
+
         # 初始化 current_state
         self.context.current_state = self.sm.initial_state
 
@@ -136,6 +178,42 @@ class Runner:
         self.guard_checker.set_start_time(
             datetime.fromisoformat(self.context.started_at)
         )
+
+        # P0d: 加载 required skills
+        if self.workflow.required_skills:
+            if self.skills_dir and os.path.isdir(self.skills_dir):
+                try:
+                    from ..skills.adoption import AdoptionProtocol
+                    self._adoption = AdoptionProtocol(
+                        self.skills_dir,
+                        self.workflow.required_skills,
+                    )
+                    # 预加载 required skills（验证可用性，缺失则 fail-fast）
+                    self._adoption.adopt(
+                        "__init__",
+                        task_skills=None,
+                        context=self.context,
+                    )
+                except RuntimeError:
+                    raise  # required skill 缺失，fail-fast
+                except ImportError:
+                    pass  # skills 模块不可用时静默跳过
+            else:
+                # skills_dir 未配置但有 required_skills → 创建 run 后立即 WorkflowFailed
+                self._get_event_bus().emit("WorkflowFailed", {
+                    "run_id": self._run_id,
+                    "final_state": "failed",
+                    "reason": "required_skills_missing",
+                    "required_skills": list(self.workflow.required_skills),
+                    "skills_dir": self.skills_dir or "(未配置)",
+                    "timestamp": _now_iso(),
+                })
+                self.context.current_state = "failed"
+                self.context.save()
+                return self._run_id  # 不继续执行主循环
+
+        # P0f: 写入 run_index.json（供 cross-cwd cancel 发现 run_root）
+        self._write_run_index()
 
         # 持久化初始状态
         self.context.save()
@@ -163,6 +241,12 @@ class Runner:
             current_state = self.context.current_state
 
             while not self.sm.is_terminal(current_state) and not self._cancelled:
+                # P0f: 每次循环迭代开始时检查取消文件
+                self._check_cancel_file()
+
+                if self._cancelled:
+                    break
+
                 # 1. Guard 检查
                 guard_result = self.guard_checker.check(current_state, self.context)
                 if not guard_result.passed:
@@ -182,22 +266,59 @@ class Runner:
                 # 3. 执行当前 state 的 task
                 task_result = self._execute_state(current_state)
 
-                # 4. 校验和记录 TaskResult
+                # 4. 校验和记录 TaskResult（P0c: 含 TaskResult/Artifact 双重校验 + 阻断链）
                 if task_result:
                     self.context.record_task_result(current_state, task_result.to_dict())
 
-                    # 校验 TaskResult
-                    validation_issues = task_result.validate()
-                    if validation_issues:
-                        for issue in validation_issues:
-                            self._get_event_bus().emit("ValidatorFinished", {
-                                "state": current_state,
-                                "passed": False,
-                                "issues": validation_issues,
-                            })
+                    # P0c: 写入 staging/<state>/task_result.json
+                    self._write_task_result_json(current_state, task_result)
 
-                    # Promote artifacts
-                    self._promote_artifacts(task_result)
+                    # P0c: 校验 TaskResult + Artifact
+                    has_blocking, warnings_list = self._validate_task_result(
+                        task_result, current_state
+                    )
+
+                    if has_blocking:
+                        # Blocking error → 拒绝 promotion，强制 fail
+                        self._get_event_bus().emit("ValidatorFinished", {
+                            "state": current_state,
+                            "passed": False,
+                            "status_text": "FAIL",
+                            "blocking": True,
+                            "errors": [
+                                e for e in self._last_validation_result.errors
+                            ] if hasattr(self, '_last_validation_result') else [],
+                            "timestamp": _now_iso(),
+                        })
+                        # 强制 decision 为 fail
+                        task_result.decision = "fail"
+                        task_result.status = "invalid_output"
+                        if not task_result.issues:
+                            from ..tasks.result import Issue
+                            task_result.issues = []
+                        task_result.issues.append(
+                            Issue(
+                                severity="blocking",
+                                title="Validator blocking error",
+                                detail="TaskResult/Artifact 校验发现阻塞性错误，promotion 已拒绝",
+                            ).to_dict() if hasattr(Issue, 'to_dict') else {
+                                "severity": "blocking",
+                                "title": "Validator blocking error",
+                                "detail": "TaskResult/Artifact 校验发现阻塞性错误，promotion 已拒绝",
+                            }
+                        )
+                    else:
+                        # 校验通过或仅有 warning → 允许 promotion
+                        self._get_event_bus().emit("ValidatorFinished", {
+                            "state": current_state,
+                            "passed": True,
+                            "status_text": "OK",
+                            "warnings": warnings_list,
+                            "timestamp": _now_iso(),
+                        })
+
+                        # P0c: Promote artifacts（检查返回值）
+                        self._promote_artifacts(task_result)
 
                 # 5. 发射 TaskFinished
                 decision = task_result.get_decision() if task_result else "fail"
@@ -220,11 +341,20 @@ class Runner:
                 # 持久化
                 self.context.save()
 
-            # 循环结束
+            # 循环结束 — 根据终态发不同事件
             if self._cancelled:
                 self._get_event_bus().emit("WorkflowCancelled", {
                     "run_id": self._run_id,
                     "final_state": current_state,
+                    "reason": "cancelled by user",
+                    "timestamp": _now_iso(),
+                })
+            elif current_state == "failed":
+                self._get_event_bus().emit("WorkflowFailed", {
+                    "run_id": self._run_id,
+                    "final_state": current_state,
+                    "last_decision": self.context.task_results.get(current_state, {}).get("decision", ""),
+                    "last_status": self.context.task_results.get(current_state, {}).get("status", ""),
                     "timestamp": _now_iso(),
                 })
             else:
@@ -238,10 +368,167 @@ class Runner:
         finally:
             self._stop_heartbeat()
             self._running = False
+            # P0a: flush + close JSONLSink
+            if self._jsonl_sink:
+                try:
+                    self._jsonl_sink.flush()
+                    self._jsonl_sink.close()
+                except Exception:
+                    pass
+            # flush EventBus
+            try:
+                self._get_event_bus().flush()
+            except Exception:
+                pass
             if self.context:
                 self.context.save()
 
         return current_state
+
+    def _write_run_index(self):
+        """P0f: 写入 run_index.json，记录 run_id → run_root 映射。
+
+        供 cross-cwd cancel CLI 发现 run_root。
+        """
+        index_dir = os.path.join(self.project_root, ".agent-workflow")
+        os.makedirs(index_dir, exist_ok=True)
+        index_path = os.path.join(index_dir, "run_index.json")
+
+        # 读取现有映射
+        existing = {}
+        if os.path.exists(index_path):
+            try:
+                with open(index_path, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                pass
+
+        # 更新映射
+        existing[self._run_id] = self.context.run_root
+
+        # 原子写入
+        tmp_path = index_path + ".tmp"
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(existing, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, index_path)
+        except Exception:
+            pass
+
+    def _check_cancel_file(self):
+        """P0f: 检查取消文件是否存在，存在则标记取消并删除文件。"""
+        if self.context is None:
+            return
+        cancel_path = os.path.join(self.context.run_root, "cancelled")
+        if os.path.exists(cancel_path):
+            self._cancelled = True
+            reason = "cancelled by user"
+            try:
+                with open(cancel_path, "r", encoding="utf-8") as f:
+                    reason = f.read().strip() or reason
+            except Exception:
+                pass
+            # 删除取消文件（避免残留）
+            try:
+                os.remove(cancel_path)
+            except Exception:
+                pass
+
+    def _write_task_result_json(self, state_name: str, task_result):
+        """P0c: 将 TaskResult 序列化写入 staging/<state>/task_result.json。"""
+        try:
+            staging_dir = os.path.join(self.context.run_root, "staging", state_name)
+            os.makedirs(staging_dir, exist_ok=True)
+            tr_path = os.path.join(staging_dir, "task_result.json")
+            with open(tr_path, "w", encoding="utf-8") as f:
+                f.write(task_result.to_json())
+            self._get_event_bus().emit("TaskResultWritten", {
+                "state": state_name,
+                "path": tr_path,
+                "timestamp": _now_iso(),
+            })
+        except Exception:
+            # 写入失败不阻塞主流程（但记录为 issue）
+            pass
+
+    def _validate_task_result(self, task_result, state_name: str) -> tuple[bool, list[str]]:
+        """P0c: 校验 TaskResult 和 Artifact，返回 (has_blocking_errors, warnings)。
+
+        Blocking errors: schema_version < 1, 缺少必需字段, execution metadata 缺失,
+                         artifact staging 文件不存在, artifact 路径逃逸
+        Warnings: 无效 status, 无效 decision, decision 不在 allowed_decisions
+        """
+        has_blocking = False
+        all_warnings: list[str] = []
+
+        # 获取 state 的 allowed_decisions
+        task_model = None
+        state = self.workflow.get_state(state_name)
+        if state and state.task:
+            task_model = self.workflow.get_task(state.task)
+
+        allowed_decisions = task_model.allowed_decisions if task_model else []
+
+        # 1. TaskResultValidator
+        try:
+            from ..validators.task_result import TaskResultValidator
+            tr_validator = TaskResultValidator(allowed_decisions=allowed_decisions)
+            validation_result = tr_validator.validate(task_result.to_dict())
+
+            if validation_result.errors:
+                has_blocking = True
+            if validation_result.warnings:
+                all_warnings.extend(validation_result.warnings)
+        except ImportError:
+            pass
+
+        # 2. ArtifactValidator — 对每个 artifact staging path 做文件级校验
+        try:
+            from ..validators.artifact import ArtifactValidator
+            av = ArtifactValidator()
+            for artifact in task_result.get_artifacts():
+                staging_path = artifact.staging_path
+                # 确保路径解析正确
+                if staging_path and not os.path.isabs(staging_path):
+                    staging_path = os.path.join(self.context.run_root, staging_path)
+
+                ar = av.validate(staging_path)
+                if ar.errors:
+                    # artifact 文件缺失视为 blocking
+                    has_blocking = True
+                    all_warnings.extend(ar.errors)
+                if ar.warnings:
+                    all_warnings.extend(ar.warnings)
+        except ImportError:
+            pass
+
+        # 3. 路径 containment 检查（P0g 在 promotion.py 中也做，此处做提前检测）
+        try:
+            from ..artifacts.promotion import _check_path_containment
+            for artifact in task_result.get_artifacts():
+                if artifact.staging_path and artifact.artifact_path:
+                    staging_ok = _check_path_containment(
+                        artifact.staging_path,
+                        os.path.join(self.context.run_root, "staging"),
+                    )
+                    artifact_ok = _check_path_containment(
+                        artifact.artifact_path,
+                        os.path.join(self.context.run_root, "artifacts"),
+                    )
+                    if not staging_ok:
+                        has_blocking = True
+                        all_warnings.append(
+                            f"staging 路径逃逸: {artifact.staging_path}"
+                        )
+                    if not artifact_ok:
+                        has_blocking = True
+                        all_warnings.append(
+                            f"artifact 路径逃逸: {artifact.artifact_path}"
+                        )
+        except ImportError:
+            pass
+
+        return has_blocking, all_warnings
 
     def _execute_state(self, state_name: str):
         """执行一个 state 的 task。"""
@@ -257,11 +544,58 @@ class Runner:
                 state_name, f"Task '{state.task}' 未定义"
             )
 
+        # P0b: 维护 current_task
+        if self.context:
+            self.context.current_task = state.task if state.task else None
+
         # 解决 Role → Agent
         agent_name = self._resolve_agent(task_model) if task_model else "mock"
 
+        # P0b: 维护 _current_agent
+        if self.context:
+            self.context.workflow_variables["_current_agent"] = agent_name
+
+        # P0d: Skill adoption for this state
+        adopted_skills: dict = {}
+        skill_context_override = ""
+        if self._adoption is not None and self.context:
+            try:
+                # 获取 task-specific skills（当前 TaskModel 无 skills 字段，传 None）
+                adopted_skills = self._adoption.adopt(
+                    state_name,
+                    task_skills=None,
+                    context=self.context,
+                )
+                # 写入 staging/<state>/skill_adoption.md
+                staging_adoption = self._adoption.write_adoption_artifact(
+                    self.context.run_root,
+                    state_name,
+                    adopted_skills,
+                )
+                # 校验 + promote skill adoption artifact
+                self._promote_skill_adoption(state_name, staging_adoption)
+                # 发射 SkillAdoptionWritten 事件
+                self._get_event_bus().emit("SkillAdoptionWritten", {
+                    "state": state_name,
+                    "skills": list(adopted_skills.keys()),
+                    "timestamp": _now_iso(),
+                })
+                # 构建 adoption summary 用于注入 AgentInput
+                if adopted_skills:
+                    skill_context_override = self._adoption.build_summary(adopted_skills)
+            except RuntimeError as e:
+                # Skill 缺失 → 返回错误 TaskResult
+                return self._create_error_result(
+                    state_name,
+                    f"Skill adoption 失败: {e}",
+                )
+
         # 构建 AgentInput
         agent_input = self._build_agent_input(state_name, task_model, agent_name)
+
+        # 注入 skill adoption summary
+        if skill_context_override:
+            agent_input.skill_context = skill_context_override
 
         # 发射 AgentStarted
         self._get_event_bus().emit("AgentStarted", {
@@ -340,6 +674,7 @@ class Runner:
         return AgentInput(
             task=task_config,
             context=self.context,
+            state_name=state_name,
             skill_context=skill_context,
             skill_policy={"allowed_decisions": allowed_decisions} if allowed_decisions else {},
             expected_task_result_schema=schema,
@@ -409,7 +744,11 @@ class Runner:
             self.context.touch()
 
     def _promote_artifacts(self, task_result):
-        """Promote artifacts（从 staging 到正式 artifacts）。"""
+        """P0c: Promote artifacts（从 staging 到正式 artifacts）。
+
+        仅在 promote_artifact() 返回 ok=True 时才更新 RunContext.artifacts。
+        失败时 artifact 留在 staging，不污染正式 artifacts。
+        """
         if task_result is None:
             return
 
@@ -417,20 +756,94 @@ class Runner:
         for artifact in artifacts:
             try:
                 from ..artifacts.promotion import promote_artifact
-                promote_artifact(
+                result = promote_artifact(
                     staging_path=artifact.staging_path,
                     artifact_path=artifact.artifact_path,
                     run_root=self.context.run_root,
                     artifact_name=artifact.name,
                 )
-                self.context.promote_artifact(artifact.name, artifact.artifact_path)
-                self._get_event_bus().emit("ArtifactPromoted", {
-                    "name": artifact.name,
-                    "artifact_path": artifact.artifact_path,
-                })
+                if result.ok:
+                    self.context.promote_artifact(artifact.name, artifact.artifact_path)
+                    self._get_event_bus().emit("ArtifactPromoted", {
+                        "name": artifact.name,
+                        "artifact_path": artifact.artifact_path,
+                    })
+                else:
+                    # Promotion 失败 → 记录事件，不更新 context
+                    self._get_event_bus().emit("ArtifactPromotionFailed", {
+                        "name": artifact.name,
+                        "staging_path": artifact.staging_path,
+                        "artifact_path": artifact.artifact_path,
+                        "error": result.error,
+                    })
             except ImportError:
-                # 如果 promotion 模块不可用，直接记录
+                # promotion 模块不可用 → 直接记录（向后兼容）
                 self.context.promote_artifact(artifact.name, artifact.artifact_path)
+
+    def _promote_skill_adoption(self, state_name: str, staging_path: str):
+        """P0d: 校验并 promote skill adoption artifact。
+
+        将 staging/<state>/skill_adoption.md promote 到
+        artifacts/skill_adoption/<state>.md，登记到 RunContext，发 ArtifactPromoted。
+        """
+        if not staging_path or not os.path.exists(staging_path):
+            return
+
+        artifact_name = f"skill_adoption:{state_name}"
+        artifact_path = os.path.join(
+            self.context.run_root, "artifacts", "skill_adoption", f"{state_name}.md"
+        )
+
+        # 校验 staging 文件
+        try:
+            from ..validators.artifact import ArtifactValidator
+            av = ArtifactValidator()
+            ar = av.validate(staging_path)
+            if ar.errors:
+                self._get_event_bus().emit("ArtifactPromotionFailed", {
+                    "name": artifact_name,
+                    "staging_path": staging_path,
+                    "artifact_path": artifact_path,
+                    "error": "; ".join(ar.errors),
+                })
+                return
+        except ImportError:
+            pass
+
+        # Promote
+        try:
+            from ..artifacts.promotion import promote_artifact
+            result = promote_artifact(
+                staging_path=staging_path,
+                artifact_path=artifact_path,
+                run_root=self.context.run_root,
+                artifact_name=artifact_name,
+            )
+            if result.ok:
+                self.context.promote_artifact(artifact_name, artifact_path)
+                self._get_event_bus().emit("ArtifactPromoted", {
+                    "name": artifact_name,
+                    "artifact_path": artifact_path,
+                    "state": state_name,
+                })
+            else:
+                self._get_event_bus().emit("ArtifactPromotionFailed", {
+                    "name": artifact_name,
+                    "staging_path": staging_path,
+                    "artifact_path": artifact_path,
+                    "error": result.error,
+                })
+        except ImportError:
+            # promotion 模块不可用 → 确保目录存在并复制
+            os.makedirs(os.path.dirname(artifact_path), exist_ok=True)
+            import shutil
+            shutil.copy2(staging_path, artifact_path)
+            self.context.promote_artifact(artifact_name, artifact_path)
+            self._get_event_bus().emit("ArtifactPromoted", {
+                "name": artifact_name,
+                "artifact_path": artifact_path,
+                "state": state_name,
+            })
 
     def cancel(self, reason: str = ""):
         """取消运行。"""
@@ -484,19 +897,47 @@ class Runner:
         )
 
 
-def cancel_run(run_id: str, reason: str = "") -> bool:
+def cancel_run(
+    run_id: str,
+    reason: str = "",
+    project_root: str | None = None,
+    run_root: str | None = None,
+) -> bool:
     """取消一个正在运行的 workflow。
 
-    P0 实现：设置取消标记。
+    run_root 发现优先级：
+    1. --run-root 显式指定
+    2. --project-root + run_index.json 查找
+    3. cwd-relative .agent-workflow/runs/<run_id>/
+
+    P0 实现：设置取消标记文件。
+    Runner 主循环每轮检查此文件，发现后进入 cancelled 状态。
     P1 完善：信号机制。
     """
-    # P0: 标记取消（需要运行中的 Runner 实例检查标记）
-    cancel_path = os.path.join(
-        ".agent-workflow", "runs", run_id, "cancelled"
-    )
+    if run_root:
+        cancel_path = os.path.join(run_root, "cancelled")
+    elif project_root:
+        # 尝试从 run_index.json 查找
+        index_path = os.path.join(project_root, ".agent-workflow", "run_index.json")
+        found = False
+        if os.path.exists(index_path):
+            try:
+                with open(index_path, "r", encoding="utf-8") as f:
+                    index = json.load(f)
+                if run_id in index:
+                    cancel_path = os.path.join(index[run_id], "cancelled")
+                    found = True
+            except (json.JSONDecodeError, IOError):
+                pass
+        if not found:
+            cancel_path = os.path.join(project_root, ".agent-workflow", "runs", run_id, "cancelled")
+    else:
+        # 默认：cwd-relative
+        cancel_path = os.path.join(".agent-workflow", "runs", run_id, "cancelled")
+
     try:
         os.makedirs(os.path.dirname(cancel_path), exist_ok=True)
-        with open(cancel_path, "w") as f:
+        with open(cancel_path, "w", encoding="utf-8") as f:
             f.write(reason or "cancelled by user")
         return True
     except Exception:
@@ -507,4 +948,7 @@ class _NullEventBus:
     """空 EventBus 实现，用于没有 observability 模块时的 fallback。"""
 
     def emit(self, event_type: str, payload: dict):
+        pass
+
+    def flush(self):
         pass

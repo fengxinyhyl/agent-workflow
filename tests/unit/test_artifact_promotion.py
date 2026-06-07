@@ -58,14 +58,19 @@ class TestPromotion:
             assert os.path.exists(staging_file)
 
     def test_promote_missing_staging(self):
-        result = promote_artifact(
-            staging_path="/nonexistent/file.md",
-            artifact_path="/tmp/artifacts/output.md",
-            run_root="/tmp",
-            artifact_name="output",
-        )
-        assert not result.ok
-        assert "不存在" in result.error
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_root = os.path.join(tmpdir, "runs", "run_001")
+            # staging_path 指向 run_root/staging 下的不存在的文件
+            staging_path = os.path.join(run_root, "staging", "missing_state", "missing.md")
+            artifact_path = os.path.join(run_root, "artifacts", "output.md")
+            result = promote_artifact(
+                staging_path=staging_path,
+                artifact_path=artifact_path,
+                run_root=run_root,
+                artifact_name="output",
+            )
+            assert not result.ok
+            assert "不存在" in result.error
 
     def test_validate_and_promote_with_validator(self):
         with tempfile.TemporaryDirectory() as tmpdir:

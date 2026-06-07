@@ -38,7 +38,7 @@ class MockAgent(BaseAgent):
 
     def execute(self, agent_input: AgentInput) -> TaskResult:
         """执行 mock 任务。"""
-        state_name = agent_input.task.name
+        state_name = agent_input.state_name or agent_input.context.current_state or agent_input.task.name
         task_id = agent_input.task.name
         instruction = agent_input.task.instruction
 
@@ -126,13 +126,9 @@ class MockAgent(BaseAgent):
             with open(staging_path, "w", encoding="utf-8") as f:
                 f.write(content)
 
-            # 计算 artifact_path
+            # 计算 artifact_path（直接构造 artifacts/ 路径，不依赖字符串 replace）
             filename = os.path.basename(staging_path)
-            # staging/<state>/xxx.md → artifacts/xxx.md
-            artifact_path = staging_path.replace(
-                os.path.join("staging", state_name),
-                "artifacts",
-            )
+            artifact_path = os.path.join(agent_input.context.run_root, "artifacts", filename)
 
             artifacts.append({
                 "name": output_name,
