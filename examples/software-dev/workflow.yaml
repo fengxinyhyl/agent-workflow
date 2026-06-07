@@ -1,0 +1,243 @@
+# software-dev Workflow
+# v4 P0 示例: Codex Plan → Claude Review → Codex Revise → Claude Review → Codex Execute → Claude Audit → Summary
+#
+# 核心链路:
+#   codex_plan → claude_review_plan
+#     approve → codex_execute
+#     revise  → codex_revise_plan → claude_review_plan
+#     reject  → failed
+#   codex_execute → claude_audit
+#     approve → summary
+#     revise  → codex_revise_execute → claude_audit
+#     reject  → failed
+#   summary → done
+
+name: software-dev
+version: "1"
+description: |
+  Codex Plan → Claude Review → Codex Revise → Claude Review → Codex Execute → Claude Audit → Summary
+
+initial_state: codex_plan
+
+# Guard 配置
+guards:
+  max_visits: 5              # 每条 state 最多访问 5 次（防止 review/revise 无限循环）
+  max_duration_minutes: 480  # 最长运行 8 小时
+  max_retries: 3             # 每个 state 最多重试 3 次
+  on_guard_failed: failed
+
+# 终止状态
+terminal_states:
+  - done
+  - failed
+  - cancelled
+
+# 必需的 Skills
+required_skills:
+  - agent-workflow-lifecycle
+
+# Task 定义
+# 每个 task 只描述: 执行什么、输入是什么、输出是什么、由哪个 role 执行
+# 禁止: transition、guard、retry、validator、provider、runtime
+tasks:
+  plan:
+    instruction: |
+      根据 goal 编写实现计划。计划必须包含:
+      1. 实现步骤（bite-sized 为佳）
+      2. 涉及的文件列表
+      3. 测试策略
+      4. 风险点
+      5. 停止规则
+    role: planner
+    input:
+      - goal
+      - project_context
+    output: plan_doc
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  review_plan:
+    instruction: |
+      审查实现计划。从以下维度评估:
+      1. 完整性 — 是否覆盖所有功能点
+      2. 正确性 — 技术方案是否可行
+      3. 测试覆盖 — 是否定义了足够的测试
+      4. 风险 — 是否识别了关键风险
+      5. 复杂度 — 是否可以简化
+
+      输出 approve（可以执行）、revise（需要修改）或 reject（不可行）。
+    role: reviewer
+    input:
+      - plan_doc
+      - project_context
+    output: review_doc
+    allowed_decisions:
+      - approve
+      - revise
+      - reject
+
+  revise_plan:
+    instruction: |
+      根据审查意见修改实现计划。必须逐条回应审查意见，
+      说明哪些采纳、哪些不采纳及原因。
+    role: planner
+    input:
+      - plan_doc
+      - review_doc
+      - revision_instructions
+    output: plan_doc
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  execute:
+    instruction: |
+      按照已批准的实现计划执行代码变更。
+      严格按照计划步骤进行，不要跳过验证步骤。
+      如果计划在执行中发现问题，输出 blocked 并说明原因。
+    role: executor
+    input:
+      - plan_doc
+      - project_context
+    output: execution_report
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  audit:
+    instruction: |
+      审计代码变更。检查:
+      1. 是否按照计划执行
+      2. 代码质量和风格
+      3. 测试通过
+      4. 无安全/性能问题
+      5. 边界情况覆盖
+
+      输出 approve（通过）、revise（需要修改）或 reject（不可接受）。
+    role: auditor
+    input:
+      - plan_doc
+      - execution_report
+      - diff
+    output: audit_report
+    allowed_decisions:
+      - approve
+      - revise
+      - reject
+
+  revise_execute:
+    instruction: |
+      根据审计意见修改代码。必须逐条回应审计意见。
+    role: executor
+    input:
+      - plan_doc
+      - execution_report
+      - audit_report
+      - revision_instructions
+    output: execution_report
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  summary:
+    instruction: |
+      生成工作流总结报告。包含:
+      1. 执行摘要
+      2. 关键决策
+      3. 产物流清单
+      4. 待办事项
+    role: planner
+    input:
+      - plan_doc
+      - execution_report
+      - audit_report
+    output: summary_report
+    allowed_decisions:
+      - done
+      - fail
+
+# State 定义
+# Transition 由 Runner 根据 TaskResult.decision 决定
+# 未知 decision 走 default
+states:
+  codex_plan:
+    task: plan
+    on:
+      done: claude_review_plan
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "Codex 编写实现计划"
+
+  claude_review_plan:
+    task: review_plan
+    on:
+      approve: codex_execute
+      revise: codex_revise_plan
+      reject: failed
+    default: failed
+    description: "Claude 审查实现计划"
+
+  codex_revise_plan:
+    task: revise_plan
+    on:
+      done: claude_review_plan
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "Codex 根据审查意见修改计划"
+
+  codex_execute:
+    task: execute
+    on:
+      done: claude_audit
+      fail: failed
+      blocked: claude_audit
+    default: failed
+    description: "Codex 执行代码变更"
+
+  claude_audit:
+    task: audit
+    on:
+      approve: summary
+      revise: codex_revise_execute
+      reject: failed
+    default: failed
+    description: "Claude 审计代码变更"
+
+  codex_revise_execute:
+    task: revise_execute
+    on:
+      done: claude_audit
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "Codex 根据审计意见修改代码"
+
+  summary:
+    task: summary
+    on:
+      done: done
+      fail: failed
+    default: failed
+    description: "生成工作流总结报告"
+
+  done:
+    task: ""
+    terminal: true
+    description: "工作流成功完成"
+
+  failed:
+    task: ""
+    terminal: true
+    description: "工作流失败终止"
+
+  cancelled:
+    task: ""
+    terminal: true
+    description: "工作流被取消"

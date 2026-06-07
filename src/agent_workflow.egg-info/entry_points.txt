@@ -1,0 +1,2 @@
+[console_scripts]
+agent-workflow = agent_workflow.cli:main

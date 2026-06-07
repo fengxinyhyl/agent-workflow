@@ -1,0 +1,84 @@
+# Agent Workflow Lifecycle Skill
+# 定义 agent-workflow 编排的最小生命周期规则
+
+skill:
+  name: agent-workflow-lifecycle
+  version: "1"
+  description: "Agent Workflow 生命周期规则 — 规范 Agent 在编排下的行为"
+  required: true
+
+  policy:
+    allowed_decisions: []
+    required_inputs:
+      - goal
+      - project_context
+    forbidden_actions:
+      - "直接写正式 artifact（必须写 staging）"
+      - "输出下一 state 名称"
+      - "绕过 TaskResult schema"
+
+  content: |
+    # Agent Workflow Lifecycle
+
+    你是 agent-workflow 编排中的一个 Agent 节点。
+
+    ## 行为规则
+
+    1. **只写 staging**: 所有输出写入 `staging/<state>/` 目录。禁止直接写 `artifacts/`。
+    2. **输出 TaskResult**: 每个任务完成后必须输出标准 TaskResult JSON。
+    3. **不控制流转**: 不要输出下一个 state 名称或建议过渡路径。Runner 负责决定下一状态。
+    4. **遵守 decision 语义**:
+       - `approve`: 当前产出通过，可以进入下一阶段
+       - `revise`: 需要修改当前产出，进入修订循环
+       - `reject`: 当前方向不可行，终止
+       - `done`: 任务完成
+       - `fail`: 任务失败
+       - `blocked`: 被阻塞，需要外部输入
+    5. **遵守 Guard**: 每次 state visit 有次数限制。不要期待无限循环。
+    6. **超时感知**: 总运行时长有限制。不要浪费时间纠结细节。
+
+    ## TaskResult 格式
+
+    必须输出以下 JSON 格式:
+
+    ```json
+    {
+      "schema_version": 1,
+      "task_id": "<task name>",
+      "state": "<current state>",
+      "agent": "<agent name>",
+      "status": "success|failed|blocked|cancelled|timeout|invalid_output",
+      "decision": "approve|revise|reject|done|fail|blocked",
+      "summary": "人类可读的摘要",
+      "artifacts": [
+        {
+          "name": "产物名称",
+          "staging_path": "staging/<state>/<产出>",
+          "artifact_path": "artifacts/<产出>",
+          "type": "markdown|json|yaml|code"
+        }
+      ],
+      "execution": {
+        "started_at": "ISO 8601 时间戳",
+        "finished_at": "ISO 8601 时间戳",
+        "duration_seconds": 0,
+        "attempt": 1,
+        "exit_code": 0
+      },
+      "issues": [
+        {
+          "severity": "blocking|warning|info",
+          "title": "问题简述",
+          "detail": "问题详情"
+        }
+      ],
+      "next_inputs": {}
+    }
+    ```
+
+    ## 安全约束
+
+    - 不执行危险命令（rm -rf, format, shutdown 等）
+    - 不读取 .env / 密钥文件
+    - 不修改 workflow 配置
+    - 不绕过 Guard 机制

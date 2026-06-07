@@ -1,0 +1,165 @@
+{
+  "run_id": "run_260607-193525_a80fc9",
+  "workflow_id": "software-dev",
+  "goal": "审核冒烟",
+  "project_root": "F:\\code\\stock\\agent-workflow",
+  "run_root": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-193525_a80fc9",
+  "current_state": "done",
+  "current_task": null,
+  "workflow_variables": {},
+  "artifacts": {
+    "plan_doc": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-193525_a80fc9\\staging\\codex_plan\\plan_doc.md",
+    "review_doc": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-193525_a80fc9\\staging\\claude_review_plan\\review_doc.md",
+    "execution_report": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-193525_a80fc9\\staging\\codex_execute\\execution_report.md",
+    "audit_report": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-193525_a80fc9\\staging\\claude_audit\\audit_report.md",
+    "summary_report": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-193525_a80fc9\\artifacts\\summary_report.md"
+  },
+  "state_history": [
+    "codex_plan",
+    "claude_review_plan",
+    "codex_execute",
+    "claude_audit",
+    "summary"
+  ],
+  "task_results": {
+    "codex_plan": {
+      "schema_version": 1,
+      "task_id": "plan",
+      "state": "plan",
+      "agent": "mock",
+      "status": "success",
+      "decision": "done",
+      "summary": "Mock 执行完成: 根据 goal 编写实现计划。计划必须包含:\n1. 实现步骤（bite-sized 为佳）\n2. 涉及的文件列表\n3. 测试策略\n4. 风险点\n5. 停止规则\n",
+      "artifacts": [
+        {
+          "name": "plan_doc",
+          "staging_path": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-193525_a80fc9\\staging\\codex_plan\\plan_doc.md",
+          "artifact_path": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-193525_a80fc9\\staging\\codex_plan\\plan_doc.md",
+          "type": "markdown"
+        }
+      ],
+      "execution": {
+        "started_at": "2026-06-07T19:35:25.858285+08:00",
+        "finished_at": "2026-06-07T19:35:25.858285+08:00",
+        "duration_seconds": 0.1,
+        "attempt": 1,
+        "exit_code": 0
+      },
+      "issues": [],
+      "next_inputs": {}
+    },
+    "claude_review_plan": {
+      "schema_version": 1,
+      "task_id": "review_plan",
+      "state": "review_plan",
+      "agent": "mock",
+      "status": "success",
+      "decision": "approve",
+      "summary": "Mock 执行完成: 审查实现计划。从以下维度评估:\n1. 完整性 — 是否覆盖所有功能点\n2. 正确性 — 技术方案是否可行\n3. 测试覆盖 — 是否定义了足够的测试\n4. 风险 — 是否识别了关键风险\n5. 复杂度 —",
+      "artifacts": [
+        {
+          "name": "review_doc",
+          "staging_path": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-193525_a80fc9\\staging\\claude_review_plan\\review_doc.md",
+          "artifact_path": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-193525_a80fc9\\staging\\claude_review_plan\\review_doc.md",
+          "type": "markdown"
+        }
+      ],
+      "execution": {
+        "started_at": "2026-06-07T19:35:25.861288+08:00",
+        "finished_at": "2026-06-07T19:35:25.861288+08:00",
+        "duration_seconds": 0.1,
+        "attempt": 1,
+        "exit_code": 0
+      },
+      "issues": [],
+      "next_inputs": {}
+    },
+    "codex_execute": {
+      "schema_version": 1,
+      "task_id": "execute",
+      "state": "execute",
+      "agent": "mock",
+      "status": "success",
+      "decision": "done",
+      "summary": "Mock 执行完成: 按照已批准的实现计划执行代码变更。\n严格按照计划步骤进行，不要跳过验证步骤。\n如果计划在执行中发现问题，输出 blocked 并说明原因。\n",
+      "artifacts": [
+        {
+          "name": "execution_report",
+          "staging_path": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-193525_a80fc9\\staging\\codex_execute\\execution_report.md",
+          "artifact_path": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-193525_a80fc9\\staging\\codex_execute\\execution_report.md",
+          "type": "markdown"
+        }
+      ],
+      "execution": {
+        "started_at": "2026-06-07T19:35:25.862286+08:00",
+        "finished_at": "2026-06-07T19:35:25.862286+08:00",
+        "duration_seconds": 0.1,
+        "attempt": 1,
+        "exit_code": 0
+      },
+      "issues": [],
+      "next_inputs": {}
+    },
+    "claude_audit": {
+      "schema_version": 1,
+      "task_id": "audit",
+      "state": "audit",
+      "agent": "mock",
+      "status": "success",
+      "decision": "approve",
+      "summary": "Mock 执行完成: 审计代码变更。检查:\n1. 是否按照计划执行\n2. 代码质量和风格\n3. 测试通过\n4. 无安全/性能问题\n5. 边界情况覆盖\n\n输出 approve（通过）、revise（需要修改）或 reject",
+      "artifacts": [
+        {
+          "name": "audit_report",
+          "staging_path": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-193525_a80fc9\\staging\\claude_audit\\audit_report.md",
+          "artifact_path": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-193525_a80fc9\\staging\\claude_audit\\audit_report.md",
+          "type": "markdown"
+        }
+      ],
+      "execution": {
+        "started_at": "2026-06-07T19:35:25.864287+08:00",
+        "finished_at": "2026-06-07T19:35:25.864287+08:00",
+        "duration_seconds": 0.1,
+        "attempt": 1,
+        "exit_code": 0
+      },
+      "issues": [],
+      "next_inputs": {}
+    },
+    "summary": {
+      "schema_version": 1,
+      "task_id": "summary",
+      "state": "summary",
+      "agent": "mock",
+      "status": "success",
+      "decision": "done",
+      "summary": "Mock 执行完成: 生成工作流总结报告。包含:\n1. 执行摘要\n2. 关键决策\n3. 产物流清单\n4. 待办事项\n",
+      "artifacts": [
+        {
+          "name": "summary_report",
+          "staging_path": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-193525_a80fc9\\staging\\summary\\summary_report.md",
+          "artifact_path": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-193525_a80fc9\\artifacts\\summary_report.md",
+          "type": "markdown"
+        }
+      ],
+      "execution": {
+        "started_at": "2026-06-07T19:35:25.866287+08:00",
+        "finished_at": "2026-06-07T19:35:25.866287+08:00",
+        "duration_seconds": 0.1,
+        "attempt": 1,
+        "exit_code": 0
+      },
+      "issues": [],
+      "next_inputs": {}
+    }
+  },
+  "attempts": {
+    "codex_plan": 1,
+    "claude_review_plan": 1,
+    "codex_execute": 1,
+    "claude_audit": 1,
+    "summary": 1
+  },
+  "started_at": "2026-06-07T19:35:25.844286+08:00",
+  "updated_at": "2026-06-07T19:35:25.868287+08:00"
+}

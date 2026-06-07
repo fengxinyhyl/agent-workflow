@@ -1,0 +1,33 @@
+# Agent 配置
+# P0 provider 就是 CLI adapter，不抽象 runtime
+
+agents:
+  codex_plan:
+    provider: codex
+    command: "{CODEX_COMMAND}"
+    cwd: "{project_root}"
+    sandbox: workspace-write
+    timeout_seconds: 3600
+    description: "Codex — 实现计划编写"
+
+  claude_review:
+    provider: claude
+    command: "{CLAUDE_COMMAND}"
+    cwd: "{project_root}"
+    timeout_seconds: 3600
+    description: "Claude — 审查与审计"
+
+  codex_execute:
+    provider: codex
+    command: "{CODEX_COMMAND}"
+    cwd: "{project_root}"
+    sandbox: workspace-write
+    timeout_seconds: 7200
+    description: "Codex — 代码执行"
+
+  claude_audit:
+    provider: claude
+    command: "{CLAUDE_COMMAND}"
+    cwd: "{project_root}"
+    timeout_seconds: 3600
+    description: "Claude — 最终审计"
