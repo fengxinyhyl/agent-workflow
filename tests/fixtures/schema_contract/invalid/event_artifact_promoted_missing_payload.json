@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "event_id": "evt_artifact_promoted_bad_001",
+  "workflow_run_id": "wfr_test_001",
+  "work_item_id": "step3",
+  "event_type": "ARTIFACT_PROMOTED",
+  "sequence": 20,
+  "timestamp": "2026-06-08T12:05:00+08:00",
+  "actor": "system",
+  "run_id": "run_test_002",
+  "phase": "REVISE",
+  "state": "COMPLETED",
+  "attempt": 1,
+  "payload": {
+    "note": "missing required artifact_id, artifact_path, sha256"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "event_id": "evt_workflow_created_bad_001",
+  "workflow_run_id": "wfr_test_001",
+  "work_item_id": "step0",
+  "event_type": "WORKFLOW_CREATED",
+  "sequence": 0,
+  "timestamp": "2026-06-08T11:00:00+08:00",
+  "actor": "human",
+  "run_id": "run_test_000",
+  "phase": "PLAN",
+  "state": "PENDING",
+  "attempt": 1,
+  "payload": {
+    "note": "missing required strategy and topic"
+  }
+}

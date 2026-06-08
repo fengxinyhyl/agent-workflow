@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "event_id": "evt_checkpoint_written_bad_001",
+  "workflow_run_id": "wfr_test_001",
+  "work_item_id": "step2",
+  "event_type": "CHECKPOINT_WRITTEN",
+  "sequence": 16,
+  "timestamp": "2026-06-08T12:01:00+08:00",
+  "actor": "system",
+  "run_id": "run_test_001",
+  "phase": "REVIEW",
+  "state": "COMPLETED",
+  "attempt": 1,
+  "payload": {
+    "note": "missing required checkpoint_id"
+  }
+}

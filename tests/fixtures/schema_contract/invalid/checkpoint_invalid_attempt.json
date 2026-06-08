@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "checkpoint_id": "ckpt_invalid_attempt_001",
+  "workflow_run_id": "wfr_test_001",
+  "work_item_id": "step2",
+  "phase": "REVIEW",
+  "state": "COMPLETED",
+  "attempt": 0,
+  "artifacts": ["test.v1"],
+  "event_id": "evt_test_001",
+  "created_at": "2026-06-08T12:00:00+08:00",
+  "checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

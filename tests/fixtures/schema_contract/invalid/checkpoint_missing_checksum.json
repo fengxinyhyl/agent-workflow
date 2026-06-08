@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "checkpoint_id": "ckpt_missing_checksum_001",
+  "workflow_run_id": "wfr_test_001",
+  "work_item_id": "step2",
+  "phase": "REVIEW",
+  "state": "COMPLETED",
+  "attempt": 1,
+  "artifacts": ["test.v1"],
+  "event_id": "evt_test_001",
+  "created_at": "2026-06-08T12:00:00+08:00"
+}

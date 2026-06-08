@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "event_id": "evt_phase_started_001",
+  "workflow_run_id": "wfr_test_001",
+  "work_item_id": "step1",
+  "event_type": "PHASE_STARTED",
+  "sequence": 5,
+  "timestamp": "2026-06-08T11:05:00+08:00",
+  "actor": "agent:claude",
+  "run_id": "run_test_001",
+  "phase": "PLAN",
+  "phase_category": "PLAN",
+  "sub_phase": null,
+  "state": "RUNNING",
+  "attempt": 1,
+  "payload": {
+    "started_by": "queue_runner"
+  }
+}

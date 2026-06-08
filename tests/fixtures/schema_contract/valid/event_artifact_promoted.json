@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "event_id": "evt_artifact_promoted_001",
+  "workflow_run_id": "wfr_test_001",
+  "work_item_id": "step3",
+  "event_type": "ARTIFACT_PROMOTED",
+  "sequence": 20,
+  "timestamp": "2026-06-08T12:05:00+08:00",
+  "actor": "system",
+  "run_id": "run_test_002",
+  "phase": "REVISE",
+  "phase_category": "REVISE",
+  "state": "COMPLETED",
+  "attempt": 1,
+  "payload": {
+    "artifact_id": "strategy_system_workflow_v1.step3.review-adoption.v1",
+    "artifact_path": "strategy/workflow/decisions/test_topic/260608-test-review-adoption.md",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

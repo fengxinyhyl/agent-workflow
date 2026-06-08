@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "event_id": "evt_workflow_created_001",
+  "workflow_run_id": "wfr_test_001",
+  "work_item_id": "step0",
+  "event_type": "WORKFLOW_CREATED",
+  "sequence": 0,
+  "timestamp": "2026-06-08T11:00:00+08:00",
+  "actor": "human",
+  "run_id": "run_test_000",
+  "phase": "PLAN",
+  "phase_category": "PLAN",
+  "sub_phase": "scaffold",
+  "state": "PENDING",
+  "attempt": 1,
+  "payload": {
+    "strategy": "workflow",
+    "topic": "test_topic"
+  }
+}

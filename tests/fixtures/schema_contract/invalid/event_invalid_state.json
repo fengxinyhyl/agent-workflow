@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "event_id": "evt_invalid_state_001",
+  "workflow_run_id": "wfr_test_001",
+  "work_item_id": "step2",
+  "event_type": "PHASE_COMPLETED",
+  "sequence": 15,
+  "timestamp": "2026-06-08T12:00:00+08:00",
+  "actor": "agent:claude",
+  "run_id": "run_test_001",
+  "phase": "REVIEW",
+  "state": "INVALID_STATE_VALUE",
+  "attempt": 1,
+  "payload": {
+    "phase": "REVIEW",
+    "artifacts": ["test.v1"]
+  }
+}

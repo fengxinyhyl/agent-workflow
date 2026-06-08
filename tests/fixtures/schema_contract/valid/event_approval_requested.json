@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "event_id": "evt_approval_requested_001",
+  "workflow_run_id": "wfr_test_001",
+  "work_item_id": "step4",
+  "event_type": "APPROVAL_REQUESTED",
+  "sequence": 30,
+  "timestamp": "2026-06-08T12:10:00+08:00",
+  "actor": "system",
+  "run_id": "run_test_003",
+  "phase": "APPROVAL",
+  "phase_category": "APPROVAL",
+  "state": "WAITING_APPROVAL",
+  "attempt": 1,
+  "payload": {
+    "gate": "human_approval",
+    "required_permission": "execute"
+  }
+}
