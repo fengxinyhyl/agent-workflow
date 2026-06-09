@@ -1,11 +1,8 @@
 """WorkItem 单元测试。"""
 
-import sys
-import os
 import pytest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from work_item import WorkItem, ItemStatus
+from agent_workflow.long_task.work_item import WorkItem, ItemStatus
 
 
 class TestWorkItem:

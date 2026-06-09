@@ -1,13 +1,11 @@
 """EventLog 单元测试。"""
 
-import sys
-import os
 import json
+import os
 import tempfile
 import pytest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from event_log import (
+from agent_workflow.long_task.event_log import (
     WorkflowEvent, EventLog, TZ_SHANGHAI, VALID_EVENT_TYPES,
     _serialize_event, _deserialize_event,
 )

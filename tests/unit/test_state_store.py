@@ -1,16 +1,14 @@
 """StateStore 单元测试。"""
 
-import sys
-import os
 import json
+import os
 import tempfile
 import pytest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from workflow_run import WorkflowRun, RunStatus
-from work_item import WorkItem, ItemStatus
-from state_store import StateStore, check_consistency
-from event_log import WorkflowEvent, TZ_SHANGHAI
+from agent_workflow.long_task.workflow_run import WorkflowRun, RunStatus
+from agent_workflow.long_task.work_item import WorkItem, ItemStatus
+from agent_workflow.long_task.state_store import StateStore, check_consistency
+from agent_workflow.long_task.event_log import WorkflowEvent, TZ_SHANGHAI
 from datetime import datetime
 
 

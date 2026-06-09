@@ -1,15 +1,13 @@
 """链式 workflow 集成测试：step1 → step2 → step3。"""
 
-import sys
 import os
 import tempfile
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from workflow_run import WorkflowRun, RunStatus
-from work_item import WorkItem, ItemStatus
-from event_log import EventLog
-from state_store import StateStore
-from queue_runner import QueueRunner
+from agent_workflow.long_task.workflow_run import WorkflowRun, RunStatus
+from agent_workflow.long_task.work_item import WorkItem, ItemStatus
+from agent_workflow.long_task.event_log import EventLog
+from agent_workflow.long_task.state_store import StateStore
+from agent_workflow.long_task.queue_runner import QueueRunner
 
 
 class TestChainWorkflow:

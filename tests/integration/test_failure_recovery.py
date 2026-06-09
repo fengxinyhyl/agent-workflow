@@ -1,17 +1,15 @@
 """失败恢复集成测试：upstream 失败 → downstream 不执行 → state 可恢复。"""
 
-import sys
 import os
 import tempfile
 import json
 import pytest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from workflow_run import WorkflowRun, RunStatus
-from work_item import WorkItem, ItemStatus
-from event_log import EventLog
-from state_store import StateStore
-from queue_runner import QueueRunner
+from agent_workflow.long_task.workflow_run import WorkflowRun, RunStatus
+from agent_workflow.long_task.work_item import WorkItem, ItemStatus
+from agent_workflow.long_task.event_log import EventLog
+from agent_workflow.long_task.state_store import StateStore
+from agent_workflow.long_task.queue_runner import QueueRunner
 
 
 class TestFailureRecovery:

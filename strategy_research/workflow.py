@@ -11,17 +11,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import sys
-import os
 
-# MVP 模块使用相对导入，与 agent-workflow 根目录下的模块保持独立
-# 测试中通过 sys.path 注入来导入
-_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _root not in sys.path:
-    sys.path.insert(0, _root)
-
-from work_item import WorkItem, ItemStatus  # noqa: E402
-from workflow_run import WorkflowRun  # noqa: E402
+from agent_workflow.long_task.work_item import WorkItem, ItemStatus
+from agent_workflow.long_task.workflow_run import WorkflowRun
 
 
 @dataclass

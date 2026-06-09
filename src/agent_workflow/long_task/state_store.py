@@ -1,6 +1,21 @@
-# TEMPORARY: Phase 1 compatibility re-export. 新代码请使用:
-#   from agent_workflow.long_task.state_store import StateStore, check_consistency
-from agent_workflow.long_task.state_store import StateStore, check_consistency  # noqa: F401
+﻿"""StateStore — workflow_state.json 的原子读写。
+
+支撑模块（非核心对象）。workflow_state.json 是恢复锚点；Event Log 是过程真相源。
+
+若二者冲突（状态不一致），QueueRunner 应在启动时调用 check_consistency() 检测并报告，
+不自动修复。
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+from typing import Any
+
+from agent_workflow.long_task.workflow_run import WorkflowRun, RunStatus
+from agent_workflow.long_task.work_item import WorkItem, ItemStatus
+from agent_workflow.long_task.event_log import WorkflowEvent
 
 
 class StateStore:
@@ -190,7 +205,5 @@ def check_consistency(
         e.event_type for e in events
         if e.event_type in ("WORKFLOW_CREATED",)
     }
-    # 如果 state 是 COMPLETED 或 FAILED，检查是否有已完成的事件
-    # （反过来说，只检查 state 是否能由事件推导）
 
     return errors
