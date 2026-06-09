@@ -140,6 +140,17 @@ class StateMachine:
         """判断是否为终止状态。"""
         return state_name in self.get_terminal_states()
 
+    def is_gate_state(self, state_name: str) -> bool:
+        """判断是否为 Gate 状态（需外部输入才能继续）。
+
+        Gate 状态在执行完 task 后，Runner 会自动暂停主循环，
+        等待外部调用 continue_from_gate() 才能 transition 到下一状态。
+        """
+        state = self.states.get(state_name)
+        if state is None:
+            return False
+        return state.gate
+
     def get_terminal_states(self) -> set[str]:
         """获取所有终止状态。"""
         # 自动推断：没有 on 转换也没有 task 的 state 也是 terminal

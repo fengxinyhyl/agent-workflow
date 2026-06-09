@@ -87,6 +87,84 @@ class QueueRunner:
         self.state_store = state_store
         self._paused = False
 
+    @classmethod
+    def hydrate(
+        cls,
+        state_store: StateStore,
+        event_log: EventLog,
+        handler: ItemHandler,
+    ) -> "QueueRunner":
+        """从 workflow_state.json + Event Log 重建 QueueRunner。
+
+        自动将持久化的 item 状态（status、artifact_path）恢复到 WorkItem 实例。
+        不需要调用方手工构造 WorkflowRun 和 list[WorkItem]。
+
+        Args:
+            state_store: 状态存储实例（指向已有的 workflow_state.json）
+            event_log: 事件日志实例（指向已有的 events.jsonl）
+            handler: 每个 item 的执行回调，遵循 ItemHandler 合约
+
+        Returns:
+            恢复后的 QueueRunner 实例，可直接调用 run() 继续执行
+
+        Raises:
+            FileNotFoundError: 若 workflow_state.json 不存在或为空
+            ValueError: 若 state 与 event log 不一致
+        """
+        # 1. 加载持久化状态
+        state = state_store.load()
+        if not state:
+            raise FileNotFoundError(
+                f"workflow_state.json 不存在或为空: {state_store.path}"
+            )
+
+        # 2. 加载事件日志
+        workflow_id = state.get("workflow_id", "")
+        events = event_log.read_by_workflow(workflow_id)
+
+        # 3. 一致性检查
+        inconsistencies = check_consistency(state, events)
+        if inconsistencies:
+            raise ValueError(
+                "workflow_state.json 与 Event Log 不一致，"
+                "请人工检查后继续:\n"
+                + "\n".join(f"  - {e}" for e in inconsistencies)
+            )
+
+        # 4. 从 state 重建 WorkItem 列表
+        items: list[WorkItem] = []
+        items_data = state.get("items", {})
+        for item_id, item_data in items_data.items():
+            item = WorkItem(
+                id=item_id,
+                title=item_data.get("title", ""),
+                status=ItemStatus(item_data.get("status", "PENDING")),
+                depends_on=list(item_data.get("depends_on", [])),
+                artifact_path=item_data.get("artifact_path"),
+            )
+            items.append(item)
+
+        # 5. 重建 WorkflowRun
+        workflow_run = WorkflowRun(
+            id=state.get("workflow_id", ""),
+            name=state.get("name", ""),
+            status=RunStatus(state.get("status", "PENDING")),
+        )
+
+        # 6. 构造 QueueRunner
+        runner = cls(
+            workflow_run=workflow_run,
+            items=items,
+            handler=handler,
+            event_log=event_log,
+            state_store=state_store,
+        )
+
+        # 7. 恢复暂停状态
+        runner._paused = state.get("paused", False)
+
+        return runner
+
     def run(self) -> None:
         """执行主循环。
 
@@ -113,12 +191,29 @@ class QueueRunner:
         if state.get("paused", False):
             self._paused = True
 
-        # 首次运行：emit WORKFLOW_CREATED + WORK_ITEM_CREATED
-        if self.workflow_run.status == RunStatus.PENDING:
+        # 首次运行/恢复：按 Event Log 检查已有事件，避免重复 emit
+        # 覆盖四种场景：全新运行、已创建 workflow、mid-run、paused
+        existing_events = self.event_log.read_by_workflow(self.workflow_run.id)
+        has_workflow_created = any(
+            e.event_type == "WORKFLOW_CREATED" for e in existing_events
+        )
+        created_item_ids = {
+            e.item_id
+            for e in existing_events
+            if e.event_type == "WORK_ITEM_CREATED"
+        }
+
+        if not has_workflow_created:
             self._emit_workflow_created()
-            self._emit_work_item_created()
+
+        for item in self.items:
+            if item.id not in created_item_ids:
+                self._emit("WORK_ITEM_CREATED", item.id, {"title": item.title})
+
+        if self.workflow_run.status == RunStatus.PENDING:
             self.workflow_run.status = RunStatus.RUNNING
-            self._save_state()
+
+        self._save_state()
 
         # 主执行循环
         while True:

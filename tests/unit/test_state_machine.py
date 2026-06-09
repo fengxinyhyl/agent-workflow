@@ -142,3 +142,111 @@ class TestGuardChecker:
         result = guard.check("test_state", ctx)
         assert not result.passed
         assert result.guard_type == "max_retries"
+
+
+class TestGateState:
+    """Gate 状态功能测试。"""
+
+    def _make_workflow_with_gate(self) -> WorkflowConfig:
+        """创建含 Gate 状态的测试 workflow。"""
+        return WorkflowConfig(
+            name="test_gate",
+            initial_state="plan",
+            terminal_states=["done", "failed"],
+            tasks={
+                "make_plan": TaskModel(name="make_plan", instruction="制定计划", role="planner"),
+                "request_approval": TaskModel(
+                    name="request_approval",
+                    instruction="生成审批请求文档",
+                    role="approver",
+                    allowed_decisions=["request_approval"],
+                ),
+                "execute_work": TaskModel(name="execute_work", instruction="执行工作", role="worker"),
+            },
+            states={
+                "plan": StateModel(
+                    name="plan", task="make_plan",
+                    on={"done": "human_approval"},
+                    default="failed",
+                ),
+                "human_approval": StateModel(
+                    name="human_approval", task="request_approval",
+                    on={"approve": "execute", "reject": "failed"},
+                    default="failed",
+                    gate=True,  # ← Gate 状态标记
+                ),
+                "execute": StateModel(
+                    name="execute", task="execute_work",
+                    on={"done": "done"},
+                    default="failed",
+                ),
+                "done": StateModel(name="done", terminal=True),
+                "failed": StateModel(name="failed", terminal=True),
+            },
+            roles={
+                "planner": RoleModel(name="planner", agent="mock"),
+                "approver": RoleModel(name="approver", agent="mock"),
+                "worker": RoleModel(name="worker", agent="mock"),
+            },
+        )
+
+    def test_is_gate_state_returns_true(self):
+        """is_gate_state() 对 gate=True 的 state 返回 True。"""
+        wf = self._make_workflow_with_gate()
+        sm = StateMachine(wf)
+        assert sm.is_gate_state("human_approval") is True
+
+    def test_is_gate_state_returns_false_for_normal(self):
+        """is_gate_state() 对普通 state 返回 False。"""
+        wf = self._make_workflow_with_gate()
+        sm = StateMachine(wf)
+        assert sm.is_gate_state("plan") is False
+        assert sm.is_gate_state("execute") is False
+
+    def test_is_gate_state_returns_false_for_terminal(self):
+        """is_gate_state() 对终止状态返回 False。"""
+        wf = self._make_workflow_with_gate()
+        sm = StateMachine(wf)
+        assert sm.is_gate_state("done") is False
+        assert sm.is_gate_state("failed") is False
+
+    def test_is_gate_state_returns_false_for_unknown(self):
+        """is_gate_state() 对不存在的 state 返回 False。"""
+        wf = self._make_workflow_with_gate()
+        sm = StateMachine(wf)
+        assert sm.is_gate_state("nonexistent") is False
+
+    def test_gate_field_in_to_dict(self):
+        """StateModel.to_dict() 包含 gate 字段。"""
+        state = StateModel(name="approval", gate=True, on={"approve": "next"})
+        d = state.to_dict()
+        assert "gate" in d
+        assert d["gate"] is True
+
+    def test_gate_field_defaults_false(self):
+        """普通 StateModel 的 gate 默认为 False。"""
+        state = StateModel(name="normal", on={"done": "next"})
+        assert state.gate is False
+
+    def test_gate_in_workflow_config_to_dict(self):
+        """WorkflowConfig.to_dict() 中 states 含 gate 字段。"""
+        wf = self._make_workflow_with_gate()
+        d = wf.to_dict()
+        approval_state = d["states"]["human_approval"]
+        assert approval_state["gate"] is True
+        plan_state = d["states"]["plan"]
+        assert "gate" in plan_state
+        assert plan_state["gate"] is False
+
+    def test_gate_resolve_transition_still_works(self):
+        """Gate 状态的 resolve_transition 仍正常工作（不影响 transition 规则）。"""
+        wf = self._make_workflow_with_gate()
+        sm = StateMachine(wf)
+        # Gate state 的 transition 规则不受影响
+        result = sm.resolve_transition("human_approval", "approve")
+        assert result.next_state == "execute"
+        assert result.matched is True
+
+        result2 = sm.resolve_transition("human_approval", "reject")
+        assert result2.next_state == "failed"
+        assert result2.matched is True

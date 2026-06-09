@@ -59,6 +59,7 @@ class StateModel:
     default: str = "failed"  # 未知 decision 的默认跳转
     description: str = ""
     terminal: bool = False  # 是否为终止状态
+    gate: bool = False  # 是否为 Gate 状态（需外部输入才能继续）
 
     def resolve_transition(self, decision: str) -> str:
         """根据 decision 解析下一状态。
@@ -82,6 +83,7 @@ class StateModel:
             "default": self.default,
             "description": self.description,
             "terminal": self.terminal,
+            "gate": self.gate,
         }
 
 

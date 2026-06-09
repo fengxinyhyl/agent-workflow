@@ -110,6 +110,7 @@ def load_state(data: dict[str, Any]) -> StateModel:
         default=data.get("default", "failed"),
         description=data.get("description", ""),
         terminal=data.get("terminal", False),
+        gate=data.get("gate", False),
     )
 
 

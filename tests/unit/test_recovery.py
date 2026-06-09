@@ -69,32 +69,26 @@ class TestRecovery:
             assert "step1" in restored_state["completed_items"]
             assert restored_state["items"]["step1"]["status"] == "COMPLETED"
 
-            # Phase 3: 继续执行 step2
-            restored_run = WorkflowRun(id="recovery_test", name="恢复测试", status=RunStatus.RUNNING)
-            restored_items = [
-                WorkItem(id="step1", title="第一步", status=ItemStatus.COMPLETED,
-                         artifact_path=items[0].artifact_path),
-                WorkItem(id="step2", title="第二步", depends_on=["step1"],
-                         status=ItemStatus.PENDING),
-            ]
-
+            # Phase 3: 使用 hydrate() 恢复并继续执行 step2
             def handler(item: WorkItem):
                 item.status = ItemStatus.COMPLETED
                 item.artifact_path = os.path.join(tmp, f"{item.id}_output.md")
 
-            runner = QueueRunner(
-                workflow_run=restored_run,
-                items=restored_items,
-                handler=handler,
-                event_log=event_log,
-                state_store=state_store,
-            )
+            runner = QueueRunner.hydrate(state_store, event_log, handler)
+
+            # 验证恢复的状态正确
+            assert runner.workflow_run.id == "recovery_test"
+            assert runner.workflow_run.status == RunStatus.RUNNING
+            assert len(runner.items) == 2
+            assert runner.items[0].status == ItemStatus.COMPLETED
+            assert runner.items[1].status == ItemStatus.PENDING
+
             runner.run()
 
             # 验证 step2 也完成了
-            assert restored_run.status == RunStatus.COMPLETED
-            assert restored_items[1].status == ItemStatus.COMPLETED
-            assert restored_items[1].artifact_path
+            assert runner.workflow_run.status == RunStatus.COMPLETED
+            assert runner.items[1].status == ItemStatus.COMPLETED
+            assert runner.items[1].artifact_path
 
         finally:
             import shutil

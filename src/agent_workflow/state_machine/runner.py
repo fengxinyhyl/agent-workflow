@@ -107,6 +107,59 @@ class Runner:
         self._cancelled = False
         self._run_id: str = ""
 
+    @classmethod
+    def attach_existing(
+        cls,
+        run_root: str,
+        workflow: WorkflowConfig,
+        goal: str = "",
+        project_root: str = ".",
+        agents: dict[str, AgentModel] | None = None,
+        event_bus: Any = None,
+        skills_dir: str | None = None,
+    ) -> "Runner":
+        """从既有 run_root 加载 RunContext 并恢复 Runner。
+
+        用于跨进程 continue 场景：新进程中从 workflow_state.json 恢复 Runner，
+        然后调用 continue_from_gate() 继续执行。
+
+        Args:
+            run_root: 既有 run 的目录路径（如 .agent-workflow/runs/run_xxx/）
+            workflow: WorkflowConfig 实例
+            goal: 工作流目标（空则从 context 读取）
+            project_root: 项目根目录
+            agents: Agent registry
+            event_bus: EventBus 实例
+            skills_dir: Skills 目录路径
+
+        Returns:
+            恢复后的 Runner 实例，context.current_state 停留在 Gate 状态
+        """
+        context = RunContext.load(run_root)
+
+        # base_run_root 是实际 run 目录的父目录
+        base_run_root = os.path.dirname(os.path.abspath(run_root))
+
+        runner = cls(
+            workflow=workflow,
+            goal=goal or context.goal,
+            project_root=project_root,
+            run_root=base_run_root,
+            agents=agents,
+            event_bus=event_bus,
+            skills_dir=skills_dir,
+        )
+
+        runner._run_id = context.run_id
+        runner.context = context
+
+        # 设置 guard 启动时间
+        runner.guard_checker.set_start_time(
+            datetime.fromisoformat(context.started_at)
+        )
+
+        return runner
+
     @property
     def run_id(self) -> str:
         return self._run_id
@@ -329,6 +382,21 @@ class Runner:
                     "timestamp": _now_iso(),
                 })
 
+                # 5b. Gate 状态检查：若当前 state 是 Gate 状态，暂停循环
+                #     暂停位置在 task 执行+校验+promote 之后、resolve_transition 之前。
+                #     此时 context.current_state 仍为 gate state，
+                #     保证 continue_from_gate() 是唯一能从 gate transition 到下一状态的路径。
+                if self.sm.is_gate_state(current_state):
+                    self.context.workflow_variables["_paused_at_gate"] = current_state
+                    self.context.workflow_variables["_run_status"] = "waiting_human_approval"
+                    self.context.save()
+                    self._get_event_bus().emit("WorkflowPausedAtGate", {
+                        "run_id": self._run_id,
+                        "gate_state": current_state,
+                        "timestamp": _now_iso(),
+                    })
+                    break
+
                 # 6. Transition
                 transition = self.sm.resolve_transition(current_state, decision)
                 self._get_event_bus().emit("TransitionSelected", transition.to_event_dict())
@@ -342,7 +410,15 @@ class Runner:
                 self.context.save()
 
             # 循环结束 — 根据终态发不同事件
-            if self._cancelled:
+            _run_status = self.context.workflow_variables.get("_run_status", "")
+            if _run_status == "waiting_human_approval":
+                self._get_event_bus().emit("WorkflowAwaitingApproval", {
+                    "run_id": self._run_id,
+                    "gate_state": self.context.workflow_variables.get("_paused_at_gate", ""),
+                    "current_state": current_state,
+                    "timestamp": _now_iso(),
+                })
+            elif self._cancelled:
                 self._get_event_bus().emit("WorkflowCancelled", {
                     "run_id": self._run_id,
                     "final_state": current_state,
@@ -844,6 +920,61 @@ class Runner:
                 "artifact_path": artifact_path,
                 "state": state_name,
             })
+
+    def continue_from_gate(self, approved: bool = False) -> str:
+        """从 Gate 状态继续执行。
+
+        仅当 workflow 停在 Gate 状态时有效。
+        若 approved=True，执行从 Gate 状态到下一状态的 transition 后继续循环。
+        若 approved=False，transition 到 failed。
+
+        Args:
+            approved: 是否批准通过
+
+        Returns:
+            最终状态名称
+
+        Raises:
+            RuntimeError: 若 workflow 未停在 Gate 状态
+        """
+        if self.context is None:
+            raise RuntimeError("Context 未初始化，请先调用 start() 或 attach_existing()")
+
+        gate_state = self.context.workflow_variables.get("_paused_at_gate")
+        if not gate_state:
+            raise RuntimeError("Workflow 未停在 Gate 状态，无需 continue")
+
+        # 清除 gate 标记
+        del self.context.workflow_variables["_paused_at_gate"]
+        if "_run_status" in self.context.workflow_variables:
+            del self.context.workflow_variables["_run_status"]
+
+        # 根据批准结果构造 decision 并 resolve transition
+        decision = "approve" if approved else "reject"
+        transition = self.sm.resolve_transition(gate_state, decision)
+        next_state = transition.next_state
+
+        # 发射 transition 事件
+        self._get_event_bus().emit("TransitionSelected", transition.to_event_dict())
+
+        # 执行 transition
+        self._transition_to(next_state)
+
+        # 发射恢复事件
+        self._get_event_bus().emit("WorkflowResumedAfterGate", {
+            "run_id": self._run_id,
+            "gate_state": gate_state,
+            "approved": approved,
+            "next_state": next_state,
+            "timestamp": _now_iso(),
+        })
+
+        self.context.save()
+
+        # 从 next_state 继续主循环
+        self._running = True
+        self._start_heartbeat()
+        return self.run()
 
     def cancel(self, reason: str = ""):
         """取消运行。"""
