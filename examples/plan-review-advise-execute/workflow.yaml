@@ -1,0 +1,166 @@
+# plan-review-advise-execute Workflow
+# 通用四阶段链路示例: Plan → Review → Advise → Execute
+#
+# 核心链路:
+#   plan → review
+#     approve → execute
+#     advise  → advise → plan        （回流：带着修改建议重做计划）
+#     reject  → failed
+#   execute → done | failed
+#
+# mock 模式下配合同目录 mock_script.yaml 可演示完整回流：
+#   review 第 1 次访问返回 advise（触发 plan 重做），第 2 次返回 approve（进入 execute）。
+
+name: plan-review-advise-execute
+version: "1"
+description: |
+  通用四阶段编排: Plan 编写计划 → Review 审查 → Advise 给出修改建议（回流）→ Execute 执行
+
+initial_state: plan
+
+# Guard 配置
+guards:
+  max_visits: 5              # 每条 state 最多访问 5 次（防止 review/advise 无限回流）
+  max_duration_minutes: 120
+  max_retries: 3
+  on_guard_failed: failed
+
+# 终止状态
+terminal_states:
+  - done
+  - failed
+  - cancelled
+
+# 必需的 Skills
+required_skills:
+  - agent-workflow-lifecycle
+
+# Task 定义
+# 每个 task 只描述: 执行什么、输入是什么、输出是什么、由哪个 role 执行
+# 禁止: transition、guard、retry、validator、provider、runtime
+tasks:
+  plan:
+    instruction: |
+      根据 goal 编写实现计划。若收到 advice_doc，必须逐条回应修改建议。
+      计划必须包含:
+      1. 实现步骤（bite-sized 为佳）
+      2. 涉及的文件列表
+      3. 测试策略
+      4. 风险点
+      5. 停止规则
+    role: planner
+    input:
+      - goal
+      - project_context
+      - advice_doc
+    output: plan_doc
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  review:
+    instruction: |
+      审查实现计划。从以下维度评估:
+      1. 完整性 — 是否覆盖所有功能点
+      2. 正确性 — 技术方案是否可行
+      3. 测试覆盖 — 是否定义了足够的测试
+      4. 风险 — 是否识别了关键风险
+      5. 复杂度 — 是否可以简化
+
+      输出 approve（可以执行）、advise（需要带建议重做计划）或 reject（不可行）。
+    role: reviewer
+    input:
+      - plan_doc
+      - project_context
+    output: review_doc
+    allowed_decisions:
+      - approve
+      - advise
+      - reject
+
+  advise:
+    instruction: |
+      针对审查意见，给出具体、可执行的修改建议。必须明确:
+      1. 哪些问题必须修复（blocking）
+      2. 建议的修改方向
+      3. 不采纳的审查意见及原因
+    role: advisor
+    input:
+      - plan_doc
+      - review_doc
+    output: advice_doc
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  execute:
+    instruction: |
+      按照已批准的实现计划执行代码变更。
+      严格按照计划步骤进行，不要跳过验证步骤。
+      如果计划在执行中发现问题，输出 blocked 并说明原因。
+    role: executor
+    input:
+      - plan_doc
+      - project_context
+    output: execution_report
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+# State 定义
+# Transition 由 Runner 根据 TaskResult.decision 决定
+# 未知 decision 走 default
+states:
+  plan:
+    task: plan
+    on:
+      done: review
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "编写实现计划"
+
+  review:
+    task: review
+    on:
+      approve: execute
+      advise: advise
+      reject: failed
+    default: failed
+    description: "审查实现计划"
+
+  advise:
+    task: advise
+    on:
+      done: plan
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "给出修改建议并回流到 plan"
+
+  execute:
+    task: execute
+    on:
+      done: done
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "执行代码变更"
+
+  done:
+    task: ""
+    terminal: true
+    description: "工作流成功完成"
+
+  failed:
+    task: ""
+    terminal: true
+    description: "工作流失败终止"
+
+  cancelled:
+    task: ""
+    terminal: true
+    description: "工作流被取消"

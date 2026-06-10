@@ -1,0 +1,20 @@
+# mock 模式 decision 脚本
+# 仅在 mock 运行时生效（无真实 CLI 时，Runner 自动 fallback 到 MockAgent）。
+#
+# 格式: decision_script.<state>: [第1次decision, 第2次decision, ...]
+#   列表耗尽后固定取最后一个。
+#
+# 以下配置演示完整回流链路:
+#   plan(1st: done) → review(1st: advise) → advise(done) → plan(2nd: done)
+#   → review(2nd: approve) → execute(done) → done
+
+decision_script:
+  review:
+    - advise    # 第 1 次访问：认为计划需要修改，触发 advise 回流
+    - approve   # 第 2 次访问：修改后的计划通过，进入 execute
+  plan:
+    - done      # plan 每次都 done（不控制 plan 的 decision，让 review 驱动节奏）
+  advise:
+    - done      # advise 给出建议后即完成，回流到 plan
+  execute:
+    - done      # execute 成功完成

@@ -148,7 +148,24 @@ def _discover_roles_and_agents(args):
     if os.path.isdir(auto_skills):
         skills_dir = auto_skills
 
-    return roles_config, agents_dict, skills_dir
+    # 自动发现 mock_script.yaml（mock 模式下演示状态机回流分支用）
+    mock_script = {}
+    mock_script_path = getattr(args, 'mock_script', None)
+    if not mock_script_path:
+        auto_mock = os.path.join(wf_dir, "mock_script.yaml")
+        if os.path.exists(auto_mock):
+            mock_script_path = auto_mock
+    if mock_script_path and os.path.exists(mock_script_path):
+        try:
+            import yaml
+            with open(mock_script_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            # 支持顶层 decision_script 键或直接是 state→list 映射
+            mock_script = data.get("decision_script", data) if isinstance(data, dict) else {}
+        except Exception:
+            safe_print(f"[WARN] 加载 mock_script 失败: {mock_script_path}")
+
+    return roles_config, agents_dict, skills_dir, mock_script
 
 
 def cmd_run(args):
@@ -159,7 +176,7 @@ def cmd_run(args):
     wf = load_workflow(args.workflow)
 
     # P0e: 自动发现并加载 roles/agents
-    roles_config, agents_dict, skills_dir = _discover_roles_and_agents(args)
+    roles_config, agents_dict, skills_dir, mock_script = _discover_roles_and_agents(args)
 
     # 合并 roles 到 workflow（如果 workflow 中未内嵌 roles）
     if roles_config:
@@ -173,6 +190,7 @@ def cmd_run(args):
         project_root=args.project_root or ".",
         agents=agents_dict if agents_dict else None,
         skills_dir=getattr(args, 'skills_dir', None) or skills_dir,
+        mock_script=mock_script,
     )
     run_id = runner.start()
     safe_print(f"\n[START] Workflow 启动: {run_id}")
@@ -297,6 +315,7 @@ def build_parser():
     p.add_argument("--roles", help="roles YAML 路径（默认自动发现 workflow 同目录下的 roles.yaml）")
     p.add_argument("--agents", help="agents YAML 路径（默认自动发现 workflow 同目录下的 agents.yaml）")
     p.add_argument("--skills-dir", help="skills 目录（默认自动发现 workflow 同目录下的 skills/）")
+    p.add_argument("--mock-script", help="mock decision 脚本 YAML（默认自动发现 workflow 同目录下的 mock_script.yaml，仅 mock 模式生效）")
     p.set_defaults(func=cmd_run)
 
     # status

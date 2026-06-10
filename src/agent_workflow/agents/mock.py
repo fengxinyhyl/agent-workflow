@@ -35,6 +35,10 @@ class MockAgent(BaseAgent):
         super().__init__(config)
         self.name = config.get("name", "mock") if config else "mock"
         self._mock_decision = config.get("mock_decision", "done") if config else "done"
+        # decision_script: 按 state 名映射到一个 decision 列表，按 state 的访问次数取值。
+        # 用于在 mock 模式下演示状态机的回流分支（如 review 第 1 次 advise、第 2 次 approve）。
+        # 形如 {"review": ["advise", "approve"]}；列表耗尽后取最后一个。
+        self._decision_script = config.get("decision_script", {}) if config else {}
 
     def execute(self, agent_input: AgentInput) -> TaskResult:
         """执行 mock 任务。"""
@@ -88,9 +92,29 @@ class MockAgent(BaseAgent):
     def _resolve_decision(self, agent_input: AgentInput) -> str:
         """解析 mock decision。
 
-        如果 AgentInput 中有 skill_policy 限制 allowed_decisions，
-        则从 allowed_decisions 中选择第一个非拒绝的 decision。
+        优先级：
+        1. decision_script[state]：按 state 的访问次数（attempt，1-based）取脚本中的
+           decision，用于演示状态机回流分支。列表耗尽后取最后一个。
+        2. 若 skill_policy 限制了 allowed_decisions 且默认 decision 不在其中，
+           则选择第一个非 reject/fail 的 decision。
+        3. 回退到 self._mock_decision。
         """
+        state_name = (
+            agent_input.state_name
+            or (agent_input.context.current_state if agent_input.context else None)
+            or agent_input.task.name
+        )
+
+        # 1. decision_script 优先
+        script = self._decision_script.get(state_name)
+        if script:
+            attempt = 1
+            if agent_input.context is not None:
+                attempt = max(1, agent_input.context.get_attempt(state_name))
+            idx = min(attempt - 1, len(script) - 1)
+            return script[idx]
+
+        # 2. allowed_decisions 兜底
         policy = agent_input.skill_policy or {}
         allowed = policy.get("allowed_decisions", [])
 

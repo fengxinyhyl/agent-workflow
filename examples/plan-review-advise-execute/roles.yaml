@@ -1,0 +1,28 @@
+# Role 配置
+# Role 是最小的 agent alias，可选 fallback
+# 禁止: capability、policy、validator、contract、guard
+
+roles:
+  planner:
+    agent: codex_plan
+    fallback_agents:
+      - claude_review
+    description: "实现计划编写"
+
+  reviewer:
+    agent: claude_review
+    fallback_agents:
+      - codex_plan
+    description: "计划审查"
+
+  advisor:
+    agent: claude_review
+    fallback_agents:
+      - codex_plan
+    description: "修改建议"
+
+  executor:
+    agent: codex_execute
+    fallback_agents:
+      - codex_plan
+    description: "代码执行"

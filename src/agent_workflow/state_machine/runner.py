@@ -65,6 +65,7 @@ class Runner:
         agents: dict[str, AgentModel] | None = None,
         event_bus: Any = None,
         skills_dir: str | None = None,
+        mock_script: dict | None = None,
     ):
         self.workflow = workflow
         self.goal = goal
@@ -99,6 +100,10 @@ class Runner:
         # P0d: Skill adoption
         self.skills_dir = skills_dir
         self._adoption = None
+
+        # mock 模式的 decision 脚本（按 state 名 → decision 列表），
+        # 仅在 mock fallback 时生效，用于演示状态机回流分支。
+        self._mock_script = mock_script or {}
 
         # 心跳控制
         self._heartbeat_thread: threading.Thread | None = None
@@ -775,7 +780,7 @@ class Runner:
             # 使用 mock agent
             try:
                 from ..agents.mock import MockAgent
-                adapter = MockAgent()
+                adapter = MockAgent({"decision_script": self._mock_script})
             except ImportError:
                 pass
 
