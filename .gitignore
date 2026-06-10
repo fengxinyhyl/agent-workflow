@@ -11,3 +11,5 @@ dist/
 .ruff_cache/
 .coverage
 htmlcov/
+
+.agent-workflow/

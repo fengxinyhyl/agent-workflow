@@ -32,6 +32,7 @@ class TaskModel:
 
     # TaskResult 策略
     allowed_decisions: list[str] = field(default_factory=list)
+    skills: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -43,6 +44,7 @@ class TaskModel:
             "description": self.description,
             "timeout_seconds": self.timeout_seconds,
             "allowed_decisions": self.allowed_decisions,
+            "skills": self.skills,
         }
 
 

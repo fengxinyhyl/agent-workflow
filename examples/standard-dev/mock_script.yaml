@@ -1,0 +1,18 @@
+# Mock decision 脚本。
+# 默认走主链；如需演示回流，可把 adoption/code_audit/unit_test 第一项改为 revise。
+
+decision_script:
+  plan:
+    - done
+  review:
+    - done
+  adoption:
+    - approve
+  implement:
+    - done
+  code_audit:
+    - approve
+  unit_test:
+    - approve
+  summary:
+    - done

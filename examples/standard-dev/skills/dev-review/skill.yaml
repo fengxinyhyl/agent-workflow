@@ -1,0 +1,29 @@
+skill:
+  name: dev-review
+  version: "1"
+  description: "开发计划审核节点规范"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "在审核阶段修改代码"
+      - "把审核意见直接当成最终采纳决定"
+  content: |
+    # Dev Review Node
+
+    审核节点只审查计划质量，不执行代码，也不直接决定是否进入编程。
+
+    ## 审核维度
+
+    - 完整性
+    - 正确性
+    - 测试覆盖
+    - 风险和安全边界
+    - 复杂度和可维护性
+
+    ## 输出要求
+
+    明确列出 blocking issues、major risks、missing evidence、
+    suggested revisions 和 do-not-change constraints。

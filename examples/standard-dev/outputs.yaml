@@ -1,0 +1,42 @@
+outputs:
+  plan_doc:
+    type: markdown
+    description: "开发计划"
+    produced_by:
+      - plan
+
+  review_doc:
+    type: markdown
+    description: "计划审核报告"
+    produced_by:
+      - review
+
+  adoption_doc:
+    type: markdown
+    description: "审核意见采纳记录"
+    produced_by:
+      - adoption
+
+  implementation_report:
+    type: markdown
+    description: "编程执行报告"
+    produced_by:
+      - implement
+
+  code_audit_report:
+    type: markdown
+    description: "代码检查报告"
+    produced_by:
+      - code_audit
+
+  test_report:
+    type: markdown
+    description: "单元测试报告"
+    produced_by:
+      - unit_test
+
+  summary_report:
+    type: markdown
+    description: "最终总结"
+    produced_by:
+      - summary

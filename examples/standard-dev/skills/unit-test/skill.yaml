@@ -1,0 +1,29 @@
+skill:
+  name: unit-test
+  version: "1"
+  description: "单元测试节点规范"
+  policy:
+    allowed_decisions:
+      - approve
+      - revise
+      - reject
+    forbidden_actions:
+      - "伪造测试通过"
+      - "忽略失败命令的退出码"
+  content: |
+    # Unit Test Node
+
+    单元测试节点负责运行或设计测试验证。
+
+    ## 要求
+
+    - 优先使用项目已有测试命令。
+    - 记录命令、退出码、关键输出摘要。
+    - 如果不能运行测试，说明环境缺口和残余风险。
+    - 测试失败时区分可修复问题和不可接受问题。
+
+    ## Decision
+
+    - `approve`: 测试通过，或无法运行但风险清楚且可接受。
+    - `revise`: 测试失败，需要回到 implement 修复。
+    - `reject`: 测试暴露不可接受问题。

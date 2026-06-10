@@ -98,6 +98,7 @@ def load_task(data: dict[str, Any]) -> TaskModel:
         description=data.get("description", ""),
         timeout_seconds=data.get("timeout_seconds", 3600),
         allowed_decisions=data.get("allowed_decisions", []),
+        skills=data.get("skills", []),
     )
 
 

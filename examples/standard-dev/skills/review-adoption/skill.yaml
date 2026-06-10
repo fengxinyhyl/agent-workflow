@@ -1,0 +1,30 @@
+skill:
+  name: review-adoption
+  version: "1"
+  description: "审核意见采纳节点规范"
+  policy:
+    allowed_decisions:
+      - approve
+      - revise
+      - reject
+    forbidden_actions:
+      - "在采纳阶段修改代码"
+      - "无记录地忽略 blocking review item"
+  content: |
+    # Review Adoption Node
+
+    采纳节点负责把审核意见转化为明确裁决。
+
+    ## 必须记录
+
+    - 每条审核意见的处理状态
+    - 已采纳的修改
+    - 延后处理的理由
+    - 不采纳的理由
+    - 下一步是否允许进入编程
+
+    ## Decision
+
+    - `approve`: 审核意见已处理，允许进入 implement。
+    - `revise`: 计划需要回到 plan 修订。
+    - `reject`: 目标或方案不可接受。

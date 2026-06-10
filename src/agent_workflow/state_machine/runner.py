@@ -641,10 +641,12 @@ class Runner:
         skill_context_override = ""
         if self._adoption is not None and self.context:
             try:
-                # 获取 task-specific skills（当前 TaskModel 无 skills 字段，传 None）
+                task_skills = []
+                if task_model is not None:
+                    task_skills = list(getattr(task_model, "skills", []) or [])
                 adopted_skills = self._adoption.adopt(
                     state_name,
-                    task_skills=None,
+                    task_skills=task_skills,
                     context=self.context,
                 )
                 # 写入 staging/<state>/skill_adoption.md
@@ -672,7 +674,12 @@ class Runner:
                 )
 
         # 构建 AgentInput
-        agent_input = self._build_agent_input(state_name, task_model, agent_name)
+        agent_input = self._build_agent_input(
+            state_name,
+            task_model,
+            agent_name,
+            adopted_skills=adopted_skills,
+        )
 
         # 注入 skill adoption summary
         if skill_context_override:
@@ -717,6 +724,7 @@ class Runner:
         state_name: str,
         task_model: TaskModel | None,
         agent_name: str,
+        adopted_skills: dict | None = None,
     ) -> AgentInput:
         """构建 AgentInput。"""
         # 转换 TaskModel → TaskConfig
@@ -730,11 +738,22 @@ class Runner:
 
         # 获取 Skill 上下文
         skill_context = ""
+        skill_policy = {"allowed_decisions": task_model.allowed_decisions} if task_model and task_model.allowed_decisions else {}
         try:
             from ..skills.adoption import get_adoption_summary
             skill_context = get_adoption_summary(self.context)
         except ImportError:
             pass
+
+        if adopted_skills is not None and task_model is not None:
+            try:
+                from ..skills.policy import resolve_skill_policy
+                skill_policy = resolve_skill_policy(
+                    adopted_skills,
+                    task_allowed_decisions=task_model.allowed_decisions,
+                )
+            except ImportError:
+                pass
 
         # 构建 staging paths
         staging_dir = os.path.join(self.context.run_root, "staging", state_name)
@@ -757,7 +776,7 @@ class Runner:
             context=self.context,
             state_name=state_name,
             skill_context=skill_context,
-            skill_policy={"allowed_decisions": allowed_decisions} if allowed_decisions else {},
+            skill_policy=skill_policy,
             expected_task_result_schema=schema,
             staging_paths=staging_paths,
         )

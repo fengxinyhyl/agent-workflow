@@ -1,0 +1,31 @@
+skill:
+  name: code-audit
+  version: "1"
+  description: "代码检查节点规范"
+  policy:
+    allowed_decisions:
+      - approve
+      - revise
+      - reject
+    forbidden_actions:
+      - "在检查阶段直接修代码"
+      - "只给总结不列具体风险"
+  content: |
+    # Code Audit Node
+
+    代码检查节点以 review 姿态审计实现。
+
+    ## 检查维度
+
+    - 是否符合计划和采纳记录
+    - 正确性和边界条件
+    - 错误处理
+    - 安全和敏感信息
+    - 可维护性
+    - 是否需要补充测试
+
+    ## Decision
+
+    - `approve`: 可进入单元测试。
+    - `revise`: 需要回到 implement 修复。
+    - `reject`: 变更不可接受。

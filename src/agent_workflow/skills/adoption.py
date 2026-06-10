@@ -51,7 +51,7 @@ class AdoptionProtocol:
                 if s not in all_skill_names:
                     all_skill_names.append(s)
 
-        skills = self.loader.load_all(all_skill_names)
+        loaded = self.loader.load_all(all_skill_names)
         missing = self.loader.get_missing()
 
         # required skill 缺失 → fail-fast
@@ -64,7 +64,11 @@ class AdoptionProtocol:
                 f"必需的 Skill 缺失: {', '.join(required_missing)}"
             )
 
-        return skills
+        return {
+            name: loaded[name]
+            for name in all_skill_names
+            if name in loaded
+        }
 
     def write_adoption_artifact(
         self,

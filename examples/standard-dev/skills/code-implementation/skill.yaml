@@ -1,0 +1,24 @@
+skill:
+  name: code-implementation
+  version: "1"
+  description: "编程执行节点规范"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "扩大到计划外重构"
+      - "删除用户未授权文件"
+      - "跳过记录实际修改"
+  content: |
+    # Code Implementation Node
+
+    编程节点按已采纳计划执行代码变更。
+
+    ## 规则
+
+    - 改动范围必须贴合 plan_doc 和 adoption_doc。
+    - 发现计划不可执行时输出 `blocked`，不要擅自扩大范围。
+    - 记录修改文件、运行命令、偏差、未完成事项。
+    - 不覆盖用户未要求修改的工作。
