@@ -108,6 +108,10 @@ TASK_RESULT_SCHEMA: dict[str, Any] = {
                     "type": "integer",
                     "description": "进程退出码",
                 },
+                "pid": {
+                    "type": "integer",
+                    "description": "子进程 PID",
+                },
             },
         },
         "issues": {
@@ -135,6 +139,23 @@ TASK_RESULT_SCHEMA: dict[str, Any] = {
         "next_inputs": {
             "type": "object",
             "description": "传递给下一状态的输入数据（可选）",
+        },
+        "session_id": {
+            "type": "string",
+            "description": "CLI session/thread ID（对齐 legacy WorkerResult）",
+        },
+        "token_usage": {
+            "type": "object",
+            "description": "token 使用统计（Claude: cache_read_input_tokens; Codex: cached_input_tokens, reasoning_output_tokens）",
+            "additionalProperties": True,
+        },
+        "log_path": {
+            "type": "string",
+            "description": "stream 日志落盘绝对路径",
+        },
+        "packet_path": {
+            "type": "string",
+            "description": "debug packet 绝对路径",
         },
     },
 }

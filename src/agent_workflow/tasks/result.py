@@ -67,6 +67,7 @@ class ExecutionMetadata:
     duration_seconds: float = 0.0
     attempt: int = 1
     exit_code: int = 0
+    pid: int | None = None  # 子进程 PID（对齐 legacy WorkerResult.pid）
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -115,6 +116,11 @@ class TaskResult:
     execution: ExecutionMetadata | dict[str, Any] = field(default_factory=ExecutionMetadata)
     issues: list[Issue] | list[dict[str, Any]] = field(default_factory=list)
     next_inputs: dict[str, Any] = field(default_factory=dict)
+    # 新增：worker 运行时元数据（对齐 legacy WorkerResult）
+    session_id: str = ""              # CLI session/thread ID（G2；Phase C/D 填充）
+    token_usage: dict[str, int] = field(default_factory=dict)  # input/output/cache tokens（G1；Phase C/D 填充）
+    log_path: str = ""                # stream 日志落盘路径（G3；Phase C/D 填充）
+    packet_path: str = ""             # debug packet 路径（G4；Phase C/D 填充）
 
     def validate(self) -> list[str]:
         """校验 TaskResult 的合法性，返回问题列表。"""
@@ -200,6 +206,10 @@ class TaskResult:
                 for i in self.issues
             ],
             "next_inputs": self.next_inputs,
+            "session_id": self.session_id,
+            "token_usage": self.token_usage,
+            "log_path": self.log_path,
+            "packet_path": self.packet_path,
         }
 
     def to_json(self) -> str:
@@ -244,6 +254,10 @@ class TaskResult:
             execution=execution,
             issues=issues,
             next_inputs=data.get("next_inputs", {}),
+            session_id=data.get("session_id", ""),
+            token_usage=data.get("token_usage", {}),
+            log_path=data.get("log_path", ""),
+            packet_path=data.get("packet_path", ""),
         )
 
     @classmethod
