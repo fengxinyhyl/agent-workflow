@@ -1,0 +1,196 @@
+# plan → review(1) → advise(1) → review(2) → advise(2) → execute
+#
+# _loop 块自动展开为:
+#   plan → review_r1 → advise_r1 → review_r2 → advise_r2 → execute
+#
+# 每轮 advise 的决策:
+#   - approve  → execute（提前通过，跳过剩余轮次）
+#   - revise   → 下一轮 review_rN（继续修改）
+#   - reject   → failed（终止）
+# 最后一轮 advise_r2 不设 revise，只能 approve 或 reject。
+
+name: plan-review-advise-loop
+version: "1"
+description: |
+  策略研究三步修正链路：plan → review(2轮) → advise(2轮) → execute
+
+initial_state: plan
+
+terminal_states: [done, failed, cancelled]
+
+# ══════════════════════════════════════════════════════════
+# 循环展开: review → advise 重复 2 次，结束后进入 execute
+# ══════════════════════════════════════════════════════════
+_loop:
+  states: [review, advise]   # 循环体内的 state 序列（按已有 state 名引用）
+  repeat: 2                   # 重复 2 轮
+  on_break: execute           # 循环结束后进入的 state
+
+# ══════════════════════════════════════════════════════════
+# Task 定义
+# ══════════════════════════════════════════════════════════
+tasks:
+  plan:
+    instruction: |
+      编写实验计划。计划必须包含:
+      1. 目标和非目标
+      2. 数据边界（IS/OOS/HOLDOUT）
+      3. 实验设计和假设
+      4. 风险与停止规则
+      5. 预期产物
+    role: planner
+    input: [goal]
+    output: plan_doc
+    version_strategy: increment       # 每次修改自动递增版本号
+    skills: [dev-plan]
+    allowed_decisions: [done, fail, blocked]
+
+  review:
+    instruction: |
+      审核当前计划。只评价计划本身，不执行代码。
+
+      必须识别:
+      - Blocking 问题（计划不可行的根本原因）
+      - 主要风险（数据泄漏、过拟合、成本不实）
+      - 缺失证据（需要补充的实验或数据）
+      - 可简化点
+
+      若已有前一轮的 review_doc 和 advise_doc，关注上一轮 advise
+      指出的修改方向是否已被充分处理。
+    role: reviewer
+    input:
+      - plan_doc:latest              # 当前最新版计划
+      - plan_doc:all                 # 所有历史版本（对比变更）
+      - advise_doc:latest            # 上一轮 advise（了解修改方向）
+    output: review_doc
+    version_strategy: increment
+    skills: [dev-review]
+    allowed_decisions: [done, fail, blocked]
+
+  advise:
+    instruction: |
+      根据 review_doc 决定下一步:
+
+      - approve: 计划可行，进入执行阶段
+      - revise:  计划需要继续修改（列出具体修改方向）
+      - reject:  不可行，终止实验
+
+      重要:
+      - 当前共 2 轮 review-advise，需从 state_history 推断当前轮次
+      - 第 2 轮只能 approve 或 reject（系统强制，revise 不会出现在可选决策中）
+      - 若 approve，必须在 summary 中记录残余风险
+    role: advisor
+    input:
+      - plan_doc:latest
+      - review_doc:latest
+    output: advise_doc
+    version_strategy: increment
+    skills: [review-adoption]
+    allowed_decisions: [approve, revise, reject]
+
+  execute:
+    instruction: |
+      按最终版 plan_doc 执行实验。必须:
+      1. 确认数据边界（不触碰 OOS/HOLDOUT）
+      2. 执行 plan 中列出的所有步骤
+      3. 记录所有命令、修改文件、偏差
+      4. 输出可复现的实验报告
+    role: executor
+    input:
+      - plan_doc:latest              # 最终版计划
+      - advise_doc:latest            # 最终版采纳决策
+      - plan_doc:all                 # 所有版本（了解演化过程）
+    output: execution_report
+    skills: [code-implementation]
+    allowed_decisions: [done, fail, blocked]
+
+  summary:
+    instruction: |
+      生成最终总结。包含:
+      1. 完成内容
+      2. 关键决策链路
+      3. 修改文件和产物流清单
+      4. 残余风险和后续建议
+    role: summarizer
+    input:
+      - plan_doc:all
+      - review_doc:all
+      - advise_doc:all
+      - execution_report
+    output: summary_report
+    skills: [workflow-summary]
+    allowed_decisions: [done, fail]
+
+# ══════════════════════════════════════════════════════════
+# State 定义（循环体内只定义模板，展开后自动生成 _r1/_r2）
+# ══════════════════════════════════════════════════════════
+states:
+  # ── 循环前: plan（只执行一次）──
+  plan:
+    task: plan
+    on:
+      done: review          # ← loader 自动修正为 review_r1
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "编写实验计划"
+
+  # ── 循环体模板: review 和 advise（被 _loop 展开为 _r1/_r2）──
+  review:
+    task: review
+    on:
+      done: advise          # ← 展开后同轮次 advise_rN
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "审核计划"
+
+  advise:
+    task: advise
+    on:
+      approve: execute      # ← 展开后: 前轮→execute(提前通过), 末轮→execute
+      revise: review        # ← 展开后: 前轮→review_r{N+1}, 末轮移除
+      reject: failed
+    default: failed
+    description: "决定下一步"
+
+  # ── 循环后: execute + summary ──
+  execute:
+    task: execute
+    on:
+      done: summary
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "执行实验"
+
+  summary:
+    task: summary
+    on:
+      done: done
+      fail: failed
+    default: failed
+    description: "生成最终总结"
+
+  # ── 终止状态 ──
+  done:
+    terminal: true
+    description: "工作流成功完成"
+
+  failed:
+    terminal: true
+    description: "工作流失败终止"
+
+  cancelled:
+    terminal: true
+    description: "工作流被取消"
+
+# ══════════════════════════════════════════════════════════
+# Role 定义
+# ══════════════════════════════════════════════════════════
+roles:
+  planner: claude
+  reviewer: codex
+  advisor: claude
+  executor: claude
+  summarizer: claude

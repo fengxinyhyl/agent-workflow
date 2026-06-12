@@ -26,6 +26,7 @@ def retry_run(
     run_id: str,
     from_state: str | None = None,
     dry_run: bool = True,
+    run_root: str | None = None,
 ) -> dict[str, Any]:
     """重试一个运行。
 
@@ -33,6 +34,7 @@ def retry_run(
       run_id: 要重试的 Run ID
       from_state: 从哪个 state 开始重试（None = 从最后失败 state）
       dry_run: True = 只读预览，False = 真实执行
+      run_root: 运行根目录（可选，默认从 .agent-workflow/runs/ 查找）
 
     dry-run 模式：
       - 读取当前 run 的状态

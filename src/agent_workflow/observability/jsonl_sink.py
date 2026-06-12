@@ -57,15 +57,17 @@ class JSONLSink:
         return self._count
 
 
-def read_log(run_id: str, summary: bool = False) -> list[dict[str, Any]] | str:
+def read_log(run_id: str, summary: bool = False, run_root: str | None = None) -> list[dict[str, Any]] | str:
     """读取某次运行的事件日志。
 
     参数:
       run_id: 运行 ID
       summary: True 时返回摘要字符串而非事件列表
+      run_root: 运行根目录（可选，默认从 .agent-workflow/runs/ 查找）
     """
     # 查找 events.jsonl
-    run_root = os.path.join(".agent-workflow", "runs", run_id)
+    if run_root is None:
+        run_root = os.path.join(".agent-workflow", "runs", run_id)
     log_path = os.path.join(run_root, "logs", "events.jsonl")
 
     if not os.path.exists(log_path):
@@ -128,6 +130,7 @@ def read_tail(
     run_id: str,
     state: str | None = None,
     lines: int = 80,
+    run_root: str | None = None,
 ) -> list[str]:
     """读取指定 state 的最近 N 条日志行。
 
@@ -135,8 +138,11 @@ def read_tail(
       run_id: 运行 ID
       state: 过滤指定 state 的事件（None = 不过滤）
       lines: 返回的行数
+      run_root: 运行根目录（可选，默认从 .agent-workflow/runs/ 查找）
     """
-    events = read_log(run_id)
+    events = read_log(run_id, run_root=run_root)
+    if isinstance(events, str):
+        return [events]
     if not events:
         return [f"未找到运行 {run_id} 的日志"]
 

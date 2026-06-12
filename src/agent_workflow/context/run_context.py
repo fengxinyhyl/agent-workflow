@@ -51,6 +51,9 @@ class RunContext:
     current_task: str | None = None
     workflow_variables: dict[str, Any] = field(default_factory=dict)
     artifacts: dict[str, str] = field(default_factory=dict)
+    # 产物流版本链：{name: ["artifacts/plan_doc-v1.md", "artifacts/plan_doc-v2.md", ...]}
+    # 与 artifacts 的关系：artifacts[name] 始终指向最新版，artifact_versions[name] 保留完整历史
+    artifact_versions: dict[str, list[str]] = field(default_factory=dict)
     state_history: list[str] = field(default_factory=list)
     task_results: dict[str, dict[str, Any]] = field(default_factory=dict)
     attempts: dict[str, int] = field(default_factory=dict)
@@ -81,6 +84,31 @@ class RunContext:
         """记录正式产物流。"""
         self.artifacts[name] = artifact_path
         self.touch()
+
+    def promote_artifact_versioned(self, name: str, artifact_path: str):
+        """记录版本化产物流。
+
+        与 promote_artifact 的区别：
+        - artifacts[name] 始终指向最新版（向后兼容现有代码）
+        - artifact_versions[name] 保留完整版本链
+        """
+        self.artifacts[name] = artifact_path
+        if name not in self.artifact_versions:
+            self.artifact_versions[name] = []
+        self.artifact_versions[name].append(artifact_path)
+        self.touch()
+
+    def get_latest_version(self, name: str) -> str | None:
+        """获取某产物流的最新版本路径。"""
+        versions = self.artifact_versions.get(name, [])
+        return versions[-1] if versions else self.artifacts.get(name)
+
+    def get_version(self, name: str, v: int) -> str | None:
+        """获取某产物流的第 v 版（1-indexed）。"""
+        versions = self.artifact_versions.get(name, [])
+        if 1 <= v <= len(versions):
+            return versions[v - 1]
+        return None
 
     def set_variable(self, key: str, value: Any):
         """设置工作流变量。"""

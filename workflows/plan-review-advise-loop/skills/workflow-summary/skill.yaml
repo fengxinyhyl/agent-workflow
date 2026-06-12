@@ -1,0 +1,24 @@
+skill:
+  name: workflow-summary
+  version: "1"
+  description: "工作流最终总结节点规范"
+  policy:
+    allowed_decisions: [done, fail]
+    forbidden_actions:
+      - "在总结阶段修改代码或产物"
+  content: |
+    # Workflow Summary Node
+
+    总结节点汇总整个工作流的产出，不做任何修改。
+
+    ## 必须包含
+
+    1. 完成内容概述
+    2. 关键决策链路（plan 版本演化、每轮 review-advise 的裁决）
+    3. 产物流清单（所有 artifacts 文件路径）
+    4. 残余风险和后续建议
+
+    ## 决策
+
+    - `done`: 总结完成
+    - `fail`: 总结过程出错

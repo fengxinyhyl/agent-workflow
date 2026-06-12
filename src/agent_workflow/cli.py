@@ -14,7 +14,63 @@ P0 CLI 命令：
 """
 
 import argparse
+import json
+import os
 import sys
+
+
+def _find_run_root(run_id: str, project_root: str | None = None, run_root_hint: str | None = None) -> str | None:
+    """根据 run_id 发现 run_root。
+
+    发现优先级：
+    1. run_root_hint 显式指定（如 --run-root doc/ → {project_root}/doc/{run_id}/）
+    2. project_root + run_index.json 查找
+    3. cwd + run_index.json 查找
+    4. cwd + .agent-workflow/runs/<run_id>/
+
+    返回 run_root 绝对路径，找不到则返回 None。
+    """
+    # 决定相对路径解析的基准
+    resolve_base = os.path.abspath(project_root) if project_root else os.path.abspath(".")
+
+    # 1. 显式指定 run_root_hint
+    if run_root_hint:
+        # 如果是绝对路径直接使用，否则基于 project_root 解析
+        if os.path.isabs(run_root_hint):
+            base = os.path.abspath(run_root_hint)
+        else:
+            base = os.path.abspath(os.path.join(resolve_base, run_root_hint))
+        # 如果 hint 已经是具体的 run 目录（以 run_id 结尾）
+        if os.path.basename(base) == run_id:
+            return base if os.path.exists(base) else None
+        # 否则视为 base_run_root
+        candidate = os.path.join(base, run_id)
+        return candidate if os.path.exists(candidate) else None
+
+    # 2-3. run_index.json 查找
+    search_roots = []
+    if project_root:
+        search_roots.append(os.path.abspath(project_root))
+    search_roots.append(os.path.abspath("."))
+
+    for root in search_roots:
+        index_path = os.path.join(root, ".agent-workflow", "run_index.json")
+        if os.path.exists(index_path):
+            try:
+                with open(index_path, "r", encoding="utf-8") as f:
+                    index = json.load(f)
+                if run_id in index and os.path.exists(index[run_id]):
+                    return index[run_id]
+            except (json.JSONDecodeError, IOError):
+                pass
+
+    # 4. 默认路径
+    for root in search_roots:
+        default = os.path.join(root, ".agent-workflow", "runs", run_id)
+        if os.path.exists(default):
+            return default
+
+    return None
 
 
 def safe_print(*args, **kwargs):
@@ -188,6 +244,7 @@ def cmd_run(args):
         wf,
         goal=args.goal,
         project_root=args.project_root or ".",
+        run_root=getattr(args, 'run_root', None) or None,
         agents=agents_dict if agents_dict else None,
         skills_dir=getattr(args, 'skills_dir', None) or skills_dir,
         mock_script=mock_script,
@@ -211,7 +268,15 @@ def cmd_run(args):
 def cmd_status(args):
     """查看运行状态。"""
     from .observability.status import get_status
-    status = get_status(args.run_id)
+    run_root = _find_run_root(
+        args.run_id,
+        project_root=getattr(args, 'project_root', None) or None,
+        run_root_hint=getattr(args, 'run_root', None) or None,
+    )
+    if run_root is None:
+        safe_print(f"[FAIL] 未找到运行: {args.run_id}")
+        return 1
+    status = get_status(args.run_id, run_root=run_root)
     safe_print(status)
     return 0
 
@@ -219,7 +284,15 @@ def cmd_status(args):
 def cmd_explain(args):
     """解释当前状态。"""
     from .observability.explain import get_explanation
-    explanation = get_explanation(args.run_id)
+    run_root = _find_run_root(
+        args.run_id,
+        project_root=getattr(args, 'project_root', None) or None,
+        run_root_hint=getattr(args, 'run_root', None) or None,
+    )
+    if run_root is None:
+        safe_print(f"[FAIL] 未找到运行: {args.run_id}")
+        return 1
+    explanation = get_explanation(args.run_id, run_root=run_root)
     safe_print(explanation)
     return 0
 
@@ -227,11 +300,19 @@ def cmd_explain(args):
 def cmd_log(args):
     """查看运行日志。"""
     from .observability.jsonl_sink import read_log
+    run_root = _find_run_root(
+        args.run_id,
+        project_root=getattr(args, 'project_root', None) or None,
+        run_root_hint=getattr(args, 'run_root', None) or None,
+    )
+    if run_root is None:
+        safe_print(f"[FAIL] 未找到运行: {args.run_id}")
+        return 1
     if args.summary:
-        summary = read_log(args.run_id, summary=True)
+        summary = read_log(args.run_id, summary=True, run_root=run_root)
         safe_print(summary)
     else:
-        events = read_log(args.run_id)
+        events = read_log(args.run_id, run_root=run_root)
         for event in events:
             safe_print(event)
     return 0
@@ -240,7 +321,15 @@ def cmd_log(args):
 def cmd_tail(args):
     """查看节点日志。"""
     from .observability.jsonl_sink import read_tail
-    lines = read_tail(args.run_id, state=args.state, lines=args.lines)
+    run_root = _find_run_root(
+        args.run_id,
+        project_root=getattr(args, 'project_root', None) or None,
+        run_root_hint=getattr(args, 'run_root', None) or None,
+    )
+    if run_root is None:
+        safe_print(f"[FAIL] 未找到运行: {args.run_id}")
+        return 1
+    lines = read_tail(args.run_id, state=args.state, lines=args.lines, run_root=run_root)
     for line in lines:
         safe_print(line)
     return 0
@@ -252,13 +341,22 @@ def cmd_retry(args):
     from_state = args.from_state
     dry_run = not dispatch
 
+    run_root = _find_run_root(
+        args.run_id,
+        project_root=getattr(args, 'project_root', None) or None,
+        run_root_hint=getattr(args, 'run_root', None) or None,
+    )
+    if run_root is None:
+        safe_print(f"[FAIL] 未找到运行: {args.run_id}")
+        return 1
+
     if dry_run:
         safe_print(f"[*] Dry-run 重试预览: run={args.run_id}, from={from_state or 'last failed'}")
     else:
         safe_print(f"[FIX] 执行重试: run={args.run_id}, from={from_state or 'last failed'}")
 
     from .state_machine.retry import retry_run
-    result = retry_run(args.run_id, from_state=from_state, dry_run=dry_run)
+    result = retry_run(args.run_id, from_state=from_state, dry_run=dry_run, run_root=run_root)
     if result.get("ok"):
         safe_print(f"[OK] 重试预览完成" if dry_run else f"[OK] 重试完成")
     else:
@@ -269,11 +367,17 @@ def cmd_retry(args):
 def cmd_cancel(args):
     """取消运行。支持 cross-cwd 取消。"""
     from .state_machine.runner import cancel_run
+    run_root = _find_run_root(
+        args.run_id,
+        project_root=getattr(args, 'project_root', None) or None,
+        run_root_hint=getattr(args, 'run_root', None) or None,
+    )
+    # cancel_run 内部会处理 run_root 为 None 的情况（写入默认路径）
     ok = cancel_run(
         args.run_id,
         reason=args.reason or "",
         project_root=getattr(args, 'project_root', None) or None,
-        run_root=getattr(args, 'run_root', None) or None,
+        run_root=run_root or getattr(args, 'run_root', None) or None,
     )
     if ok:
         safe_print(f"[STOP] 已取消: {args.run_id}")
@@ -312,6 +416,7 @@ def build_parser():
     p.add_argument("--workflow", "-w", required=True, help="workflow YAML 路径")
     p.add_argument("--goal", "-g", required=True, help="Workflow 目标描述")
     p.add_argument("--project-root", "-p", help="项目根目录（默认当前目录）")
+    p.add_argument("--run-root", help="运行产物根目录（默认 {project_root}/.agent-workflow/runs）。可指定为 doc/ 等自定义路径")
     p.add_argument("--roles", help="roles YAML 路径（默认自动发现 workflow 同目录下的 roles.yaml）")
     p.add_argument("--agents", help="agents YAML 路径（默认自动发现 workflow 同目录下的 agents.yaml）")
     p.add_argument("--skills-dir", help="skills 目录（默认自动发现 workflow 同目录下的 skills/）")
@@ -321,17 +426,23 @@ def build_parser():
     # status
     p = sub.add_parser("status", help="查看运行状态")
     p.add_argument("--run-id", "-r", required=True, help="Run ID")
+    p.add_argument("--project-root", "-p", help="项目根目录（用于 run_index.json 发现）")
+    p.add_argument("--run-root", help="run_root 路径（直接指定）")
     p.set_defaults(func=cmd_status)
 
     # explain
     p = sub.add_parser("explain", help="解释当前状态")
     p.add_argument("--run-id", "-r", required=True, help="Run ID")
+    p.add_argument("--project-root", "-p", help="项目根目录（用于 run_index.json 发现）")
+    p.add_argument("--run-root", help="run_root 路径（直接指定）")
     p.set_defaults(func=cmd_explain)
 
     # log
     p = sub.add_parser("log", help="查看运行日志")
     p.add_argument("--run-id", "-r", required=True, help="Run ID")
     p.add_argument("--summary", "-s", action="store_true", help="仅输出摘要")
+    p.add_argument("--project-root", "-p", help="项目根目录（用于 run_index.json 发现）")
+    p.add_argument("--run-root", help="run_root 路径（直接指定）")
     p.set_defaults(func=cmd_log)
 
     # tail
@@ -339,6 +450,8 @@ def build_parser():
     p.add_argument("--run-id", "-r", required=True, help="Run ID")
     p.add_argument("--state", "-s", required=True, help="State 名称")
     p.add_argument("--lines", "-n", type=int, default=80, help="行数（默认 80）")
+    p.add_argument("--project-root", "-p", help="项目根目录（用于 run_index.json 发现）")
+    p.add_argument("--run-root", help="run_root 路径（直接指定）")
     p.set_defaults(func=cmd_tail)
 
     # retry
@@ -346,6 +459,8 @@ def build_parser():
     p.add_argument("--run-id", "-r", required=True, help="Run ID")
     p.add_argument("--from-state", help="从指定 state 重试")
     p.add_argument("--dispatch", action="store_true", help="真实执行（非 dry-run）")
+    p.add_argument("--project-root", "-p", help="项目根目录（用于 run_index.json 发现）")
+    p.add_argument("--run-root", help="run_root 路径（直接指定）")
     p.set_defaults(func=cmd_retry)
 
     # cancel

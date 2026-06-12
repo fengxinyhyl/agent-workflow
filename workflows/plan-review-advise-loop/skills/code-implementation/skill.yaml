@@ -1,0 +1,29 @@
+skill:
+  name: code-implementation
+  version: "1"
+  description: "实验执行节点规范"
+  policy:
+    allowed_decisions: [done, fail, blocked]
+    forbidden_actions:
+      - "超出 plan 中声明的数据边界"
+      - "触碰 OOS/HOLDOUT 数据"
+      - "修改策略核心配置文件（config.py）"
+  content: |
+    # Code Implementation Node
+
+    执行节点按照 plan_doc 执行实验，严格在 plan 声明的边界内行动。
+
+    ## 必须记录
+
+    1. 数据边界确认（实际使用的数据范围与 plan 一致）
+    2. 执行的命令和参数
+    3. 修改的文件列表
+    4. 与 plan 的偏差及原因
+    5. 验证结果
+    6. 禁止操作确认（未触碰 plan 声明的 Forbidden Actions）
+
+    ## 决策
+
+    - `done`: 执行完成，产物齐全
+    - `blocked`: 发现 plan 不成立或前置条件不满足
+    - `fail`: 执行过程出现不可恢复错误

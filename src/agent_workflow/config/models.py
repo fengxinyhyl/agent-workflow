@@ -34,6 +34,11 @@ class TaskModel:
     allowed_decisions: list[str] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
 
+    # 版本策略（控制同名产物流在多次循环中的命名方式）
+    # "overwrite" — 每次覆盖（默认，向后兼容）
+    # "increment" — 自动递增：plan_doc-v1.md, plan_doc-v2.md, ...
+    version_strategy: str = "overwrite"
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -45,6 +50,7 @@ class TaskModel:
             "timeout_seconds": self.timeout_seconds,
             "allowed_decisions": self.allowed_decisions,
             "skills": self.skills,
+            "version_strategy": self.version_strategy,
         }
 
 

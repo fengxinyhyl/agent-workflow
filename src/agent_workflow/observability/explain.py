@@ -22,12 +22,17 @@ import json
 from .heartbeat import check_stale
 
 
-def get_explanation(run_id: str) -> str:
+def get_explanation(run_id: str, run_root: str | None = None) -> str:
     """解释指定运行的当前状态和可能的后续步骤。
+
+    Args:
+        run_id: 运行 ID
+        run_root: 运行根目录（可选，默认从 .agent-workflow/runs/ 查找）
 
     返回可读的解释字符串。
     """
-    run_root = os.path.join(".agent-workflow", "runs", run_id)
+    if run_root is None:
+        run_root = os.path.join(".agent-workflow", "runs", run_id)
 
     if not os.path.exists(run_root):
         return f"[FAIL] 未找到运行: {run_id}"

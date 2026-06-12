@@ -162,11 +162,154 @@ def load_guard(data: dict[str, Any]) -> GuardModel:
     )
 
 
+def _unroll_loops(
+    resolved: dict[str, Any],
+    states: dict[str, StateModel],
+) -> dict[str, StateModel]:
+    """展开 _loop 块为线性 state 序列。
+
+    语法:
+        _loop:
+          states: [plan, review, advise]   # 要重复的 state 序列（按已有 state 名引用）
+          repeat: 3                         # 重复次数
+          on_break: execute                 # 循环结束后进入的 state 名
+
+    展开结果（以 repeat=3 为例）:
+        plan_r1 → review_r1 → advise_r1 → plan_r2 → review_r2 → advise_r2
+          → plan_r3 → review_r3 → advise_r3 → on_break
+
+    每轮 advise 节点保留 approve/reject 决策:
+      - 前 N-1 轮: revise → 下一轮 plan_rN（继续修改）
+      - 最后轮:    不设 revise → 只能 approve 或 reject
+      - 任意轮:    approve → on_break（提前通过，跳过剩余轮次）
+
+    思路: 状态机保持 DAG，循环交给 YAML 层展开，Runner 无需感知。
+    """
+    loop_block = resolved.pop("_loop", None)
+    if loop_block is None:
+        return states
+
+    loop_state_names: list[str] = loop_block.get("states", [])
+    repeat: int = loop_block.get("repeat", 1)
+    on_break: str = loop_block.get("on_break", "")
+
+    if not loop_state_names or repeat < 1:
+        return states
+
+    # 校验：循环内的 state 名必须在 states 中存在
+    for name in loop_state_names:
+        if name not in states:
+            raise ValueError(
+                f"_loop.states 引用了未定义的 state '{name}'，"
+                f"请先在 states 块中定义它"
+            )
+
+    # 校验：on_break 目标必须存在（或将在后续 states 中定义）
+    if on_break and on_break not in states:
+        raise ValueError(
+            f"_loop.on_break '{on_break}' 未在 states 中定义，"
+            f"请确保执行阶段 states 在 _loop 之前声明"
+        )
+
+    expanded: dict[str, StateModel] = {}
+
+    for r in range(1, repeat + 1):
+        for i, base_name in enumerate(loop_state_names):
+            base_state = states[base_name]
+            round_name = f"{base_name}_r{r}"
+
+            # 复制原始 state 的 on 映射，后续会修正 transition 目标
+            on = dict(base_state.on) if base_state.on else {}
+
+            is_last_state_in_round = (i == len(loop_state_names) - 1)
+            is_last_round = (r == repeat)
+
+            if is_last_state_in_round:
+                # ── 轮次最后一个 state（如 advise）──
+                if is_last_round:
+                    # 最后一轮：移除 revise（不再循环），approve → on_break
+                    on.pop("revise", None)
+                    for decision in on:
+                        if on[decision] == base_name:  # 指向循环起始 state
+                            on[decision] = on_break
+                    # approve 指向 on_break（如果 approve 原本指向循环外的 execute，保持不变）
+                    if "approve" not in on:
+                        on["approve"] = on_break
+                else:
+                    # 前 N-1 轮：revise → 下一轮的 plan_r{N+1}
+                    next_first = f"{loop_state_names[0]}_r{r + 1}"
+                    if "revise" in on:
+                        on["revise"] = next_first
+                    else:
+                        on["revise"] = next_first  # 自动添加 revise 到下一轮
+                    # approve → on_break（允许提前通过）
+                    if "approve" in on:
+                        on["approve"] = on_break
+                    else:
+                        on["approve"] = on_break
+            else:
+                # ── 非轮次最后一个 state（如 plan、review）──
+                # done → 同轮次下一个 state
+                next_in_round = f"{loop_state_names[i + 1]}_r{r}"
+                if "done" in on:
+                    on["done"] = next_in_round
+                else:
+                    on["done"] = next_in_round
+
+            expanded[round_name] = StateModel(
+                name=round_name,
+                task=base_state.task,
+                on=on,
+                default=base_state.default,
+                description=f"{base_state.description or base_name} (第 {r} 轮)",
+                terminal=False,
+                gate=base_state.gate,
+            )
+
+    # 合并：原始 states 中循环体内的 state 名替换为展开后的 _r1/_r2/_r3
+    # 循环外的 state 保持不变，但其 transition 中指向循环内 state 的需修正为 _r1
+    final_states: dict[str, StateModel] = {}
+    for name, state in states.items():
+        if name not in loop_state_names:
+            # 修正该 state 的 on 映射中指向循环内 state 的引用 → _r1
+            fixed_on = {}
+            for decision, target in (state.on or {}).items():
+                if target in loop_state_names:
+                    fixed_on[decision] = f"{target}_r1"
+                else:
+                    fixed_on[decision] = target
+            final_states[name] = StateModel(
+                name=state.name,
+                task=state.task,
+                on=fixed_on,
+                default=(
+                    f"{state.default}_r1"
+                    if state.default in loop_state_names
+                    else state.default
+                ),
+                description=state.description,
+                terminal=state.terminal,
+                gate=state.gate,
+            )
+        # 循环体内的原始 state 被展开版本替换，不保留
+    final_states.update(expanded)
+
+    # 修正 initial_state：如果 initial_state 是循环第一个 state，指向 _r1
+    initial = resolved.get("initial_state", "")
+    if initial == loop_state_names[0]:
+        resolved["initial_state"] = f"{initial}_r1"
+
+    return final_states
+
+
 def load_workflow(path: str) -> WorkflowConfig:
     """从 YAML 文件加载 WorkflowConfig。
 
     用法:
-        wf = load_workflow("examples/software-dev/workflow.yaml")
+        wf = load_workflow("workflows/software-dev/workflow.yaml")
+
+    YAML 可选的 _loop 块用于声明重复 state 序列，加载时自动展开为线性 states。
+    详见 _unroll_loops() 文档。
     """
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.load(f, Loader=_SafeStringLoader)
@@ -205,6 +348,9 @@ def load_workflow(path: str) -> WorkflowConfig:
                 item["name"] = name
                 state = load_state(item)
                 states[name] = state
+
+    # ── 展开 _loop 块（必须在加载 states 之后、计算 terminal states 之前）──
+    states = _unroll_loops(resolved, states)
 
     # 加载 roles
     roles = {}
@@ -253,7 +399,7 @@ def load_agents_config(path: str) -> dict[str, AgentModel]:
     """从 YAML 文件加载 Agent 配置。
 
     用法:
-        agents = load_agents_config("examples/software-dev/agents.yaml")
+        agents = load_agents_config("workflows/software-dev/agents.yaml")
     """
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.load(f, Loader=_SafeStringLoader)
@@ -281,7 +427,7 @@ def load_roles_config(path: str) -> dict[str, RoleModel]:
     """从 YAML 文件加载 Role 配置。
 
     用法:
-        roles = load_roles_config("examples/software-dev/roles.yaml")
+        roles = load_roles_config("workflows/software-dev/roles.yaml")
     """
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.load(f, Loader=_SafeStringLoader)

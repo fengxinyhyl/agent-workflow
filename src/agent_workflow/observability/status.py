@@ -23,12 +23,17 @@ def _now() -> datetime:
     return datetime.now(tz)
 
 
-def get_status(run_id: str) -> str:
+def get_status(run_id: str, run_root: str | None = None) -> str:
     """获取指定运行的状态摘要。
+
+    Args:
+        run_id: 运行 ID
+        run_root: 运行根目录（可选，默认从 .agent-workflow/runs/ 查找）
 
     返回可读的状态字符串。
     """
-    run_root = os.path.join(".agent-workflow", "runs", run_id)
+    if run_root is None:
+        run_root = os.path.join(".agent-workflow", "runs", run_id)
 
     # 检查运行目录是否存在
     if not os.path.exists(run_root):

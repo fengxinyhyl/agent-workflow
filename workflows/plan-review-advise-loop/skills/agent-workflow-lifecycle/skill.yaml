@@ -1,0 +1,32 @@
+skill:
+  name: agent-workflow-lifecycle
+  version: "1"
+  description: "Agent Workflow 生命周期约束（全局生效）"
+  policy:
+    allowed_decisions: []     # 不限制，由各节点 skill 自行定义
+    forbidden_actions:
+      - "直接写入 artifacts/ 目录（只能写入 staging/）"
+      - "在 TaskResult 之外输出下一 state 名称"
+      - "绕过 TaskResult JSON 格式输出"
+      - "使用 rm -rf 或格式化命令"
+  content: |
+    # Agent Workflow Lifecycle
+
+    所有节点必须遵守的全局约束。
+
+    ## 输出规则
+
+    1. 所有输出写入 staging/<state>/ 目录
+    2. 产物路径在 TaskResult.artifacts 中声明
+    3. 禁止直接写 artifacts/（Runner 负责 promote）
+
+    ## TaskResult 规则
+
+    1. decision 只能从 allowed_decisions 中选择
+    2. 不知道选哪个时选 `blocked`，不要猜
+    3. summary 必须是人类可读的中文描述
+
+    ## 安全规则
+
+    1. 禁止执行 rm -rf、format、shutdown 等破坏性命令
+    2. 所有文件写入路径必须在 run_root 内

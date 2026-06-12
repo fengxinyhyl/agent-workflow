@@ -1,0 +1,18 @@
+# Agent 配置 — 声明 workflow 使用的 agent
+#
+# 使用方式:
+#   agent-workflow run --workflow workflow.yaml --agents agents.yaml --goal "研究xxx"
+
+agents:
+  claude:
+    provider: claude
+    command: "{CLAUDE_COMMAND}"         # 从环境变量读取，默认 claude
+    cwd: "{project_root}"
+    timeout_seconds: 1800
+
+  codex:
+    provider: codex
+    command: "{CODEX_COMMAND}"          # 从环境变量读取，默认 codex
+    cwd: "{project_root}"
+    sandbox: workspace-write
+    timeout_seconds: 1800

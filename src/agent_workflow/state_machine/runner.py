@@ -85,7 +85,10 @@ class Runner:
             run_root = os.path.join(
                 self.project_root, ".agent-workflow", "runs"
             )
-        self.base_run_root = run_root
+        elif not os.path.isabs(run_root):
+            # 相对路径基于 project_root 解析
+            run_root = os.path.join(self.project_root, run_root)
+        self.base_run_root = os.path.abspath(run_root)
 
         # Agent registry
         self._agent_registry = agents or {}
@@ -237,6 +240,9 @@ class Runner:
             datetime.fromisoformat(self.context.started_at)
         )
 
+        # P0f: 写入 run_index.json（必须在 skill 检查之前，确保失败的 run 也能被 cancel 发现）
+        self._write_run_index()
+
         # P0d: 加载 required skills
         if self.workflow.required_skills:
             if self.skills_dir and os.path.isdir(self.skills_dir):
@@ -269,9 +275,6 @@ class Runner:
                 self.context.current_state = "failed"
                 self.context.save()
                 return self._run_id  # 不继续执行主循环
-
-        # P0f: 写入 run_index.json（供 cross-cwd cancel 发现 run_root）
-        self._write_run_index()
 
         # 持久化初始状态
         self.context.save()
@@ -837,6 +840,15 @@ class Runner:
 
         return "mock"
 
+    def _get_current_task_model(self) -> TaskModel | None:
+        """获取当前 state 对应的 TaskModel。"""
+        if self.context is None or not self.context.current_state:
+            return None
+        state = self.workflow.get_state(self.context.current_state)
+        if state is None or not state.task:
+            return None
+        return self.workflow.get_task(state.task)
+
     def _transition_to(self, next_state: str):
         """执行状态迁移。"""
         if self.context:
@@ -848,37 +860,58 @@ class Runner:
 
         仅在 promote_artifact() 返回 ok=True 时才更新 RunContext.artifacts。
         失败时 artifact 留在 staging，不污染正式 artifacts。
+
+        支持 version_strategy：
+        - "overwrite"（默认）：每次覆盖同名文件，artifacts 始终指向最新版
+        - "increment"：自动递增版本号，如 plan_doc-v1.md, plan_doc-v2.md, ...
         """
         if task_result is None:
             return
 
+        # 获取当前 task 的 version_strategy
+        task_model = self._get_current_task_model()
+        version_strategy = (
+            getattr(task_model, "version_strategy", "overwrite")
+            if task_model else "overwrite"
+        )
+
         artifacts = task_result.get_artifacts()
         for artifact in artifacts:
+            # 根据 version_strategy 决定最终 artifact_path
+            if version_strategy == "increment":
+                attempt = self.context.get_attempt(self.context.current_state)
+                base, ext = os.path.splitext(artifact.artifact_path)
+                versioned_path = f"{base}-v{attempt}{ext}"
+            else:
+                versioned_path = artifact.artifact_path
+
             try:
                 from ..artifacts.promotion import promote_artifact
                 result = promote_artifact(
                     staging_path=artifact.staging_path,
-                    artifact_path=artifact.artifact_path,
+                    artifact_path=versioned_path,
                     run_root=self.context.run_root,
                     artifact_name=artifact.name,
                 )
                 if result.ok:
-                    self.context.promote_artifact(artifact.name, artifact.artifact_path)
+                    # 使用版本化 promote（保留完整版本链）
+                    self.context.promote_artifact_versioned(artifact.name, versioned_path)
                     self._get_event_bus().emit("ArtifactPromoted", {
                         "name": artifact.name,
-                        "artifact_path": artifact.artifact_path,
+                        "artifact_path": versioned_path,
+                        "version_strategy": version_strategy,
                     })
                 else:
                     # Promotion 失败 → 记录事件，不更新 context
                     self._get_event_bus().emit("ArtifactPromotionFailed", {
                         "name": artifact.name,
                         "staging_path": artifact.staging_path,
-                        "artifact_path": artifact.artifact_path,
+                        "artifact_path": versioned_path,
                         "error": result.error,
                     })
             except ImportError:
                 # promotion 模块不可用 → 直接记录（向后兼容）
-                self.context.promote_artifact(artifact.name, artifact.artifact_path)
+                self.context.promote_artifact_versioned(artifact.name, versioned_path)
 
     def _promote_skill_adoption(self, state_name: str, staging_path: str):
         """P0d: 校验并 promote skill adoption artifact。

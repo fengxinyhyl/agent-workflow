@@ -34,7 +34,7 @@ def load_skill(path: str, required: bool = False) -> SkillModel | None:
     - .yaml/.yml 文件（结构化 skill 定义）
 
     用法:
-        skill = load_skill("examples/software-dev/skills/agent-workflow-lifecycle/skill.yaml")
+        skill = load_skill("workflows/software-dev/skills/agent-workflow-lifecycle/skill.yaml")
     """
     if not os.path.exists(path):
         return None
@@ -147,7 +147,7 @@ class SkillLoader:
     """批量 Skill 加载器。
 
     用法:
-        loader = SkillLoader("examples/software-dev/skills/")
+        loader = SkillLoader("workflows/software-dev/skills/")
         skills = loader.load_all(["agent-workflow-lifecycle"])
         missing = loader.get_missing()
     """

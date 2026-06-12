@@ -1,0 +1,32 @@
+skill:
+  name: review-adoption
+  version: "1"
+  description: "审核意见采纳裁决节点规范"
+  policy:
+    allowed_decisions: [approve, revise, reject]
+    forbidden_actions:
+      - "在采纳阶段修改计划或执行命令"
+      - "无记录地忽略 blocking review item"
+      - "在最后一轮仍输出 revise"
+  content: |
+    # Review Adoption Node
+
+    采纳节点负责把审核意见转化为明确裁决，不做修改动作。
+
+    ## 必须记录
+
+    1. 每条审核意见的处理状态（已采纳 / 延后 / 不采纳）
+    2. 不采纳的理由（必须具体）
+    3. 延后到哪一轮处理
+    4. 当前是第几轮（从 state_history 推断）
+
+    ## 决策
+
+    - `approve`: 计划可进入执行阶段。若有残余风险，必须在 summary 中记录
+    - `revise`: 计划需要继续修改。列出具体修改方向，不少于 3 条
+    - `reject`: 目标或方案不可行，终止实验
+
+    ## 轮次感知
+
+    从 context.attempts 可以知道当前是第几轮。最后一轮（系统不提供 revise 决策）
+    必须输出 approve 或 reject。

@@ -1,0 +1,28 @@
+skill:
+  name: dev-plan
+  version: "1"
+  description: "实验计划节点规范"
+  policy:
+    allowed_decisions: [done, fail, blocked]
+    forbidden_actions:
+      - "在计划阶段修改代码或执行命令"
+      - "跳过数据边界声明"
+      - "触碰 OOS/HOLDOUT 数据"
+  content: |
+    # Dev Plan Node
+
+    计划节点只负责制定可执行实验计划，不修改代码、不执行命令。
+
+    ## 必须包含
+
+    1. 目标和非目标
+    2. 数据边界（明确 IS/OOS/HOLDOUT 范围）
+    3. 实验设计（假设、变量、对照组）
+    4. 风险与停止规则
+    5. 预期产物（文件名和内容描述）
+
+    ## 决策
+
+    - `done`: 计划完整、可审核
+    - `blocked`: 缺少关键上下文（如不确定数据在哪里）
+    - `fail`: 目标明显不可行

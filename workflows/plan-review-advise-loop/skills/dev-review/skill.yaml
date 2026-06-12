@@ -1,0 +1,27 @@
+skill:
+  name: dev-review
+  version: "1"
+  description: "计划审核节点规范"
+  policy:
+    allowed_decisions: [done, fail, blocked]
+    forbidden_actions:
+      - "在审核阶段修改计划或执行命令"
+      - "以'可能有问题'代替具体证据"
+  content: |
+    # Dev Review Node
+
+    审核节点只评价计划，不修改计划、不执行代码。
+
+    ## 必须输出
+
+    - Blocking 问题（计划不可行的根本原因，必须具体到段落/参数）
+    - 主要风险（数据泄漏、过拟合、成本不实）
+    - 缺失证据（需要补充的实验或数据）
+    - 可简化点
+    - 证据来源（哪段计划、哪个数值）
+
+    ## 决策
+
+    - `done`: 审核完成，无论是否有 blocking 问题
+    - `blocked`: 无法审核（如计划文件不可读）
+    - `fail`: 审核过程出现严重错误
