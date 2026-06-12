@@ -20,6 +20,7 @@ Runner 负责:
 from __future__ import annotations
 
 import os
+import re
 import time
 import threading
 import uuid
@@ -39,11 +40,21 @@ def _now_iso() -> str:
     return datetime.now(tz).isoformat()
 
 
-def _generate_run_id() -> str:
-    """生成唯一的 run_id。"""
-    ts = datetime.now(timezone(timedelta(hours=8))).strftime("%y%m%d-%H%M%S")
-    short = uuid.uuid4().hex[:6]
-    return f"run_{ts}_{short}"
+def _generate_run_id(topic: str = "", workflow_name: str = "", goal: str = "") -> str:
+    """生成 run_id：{YYMMDD}_{name}，name 按 topic > workflow_name > goal 优先级。"""
+    ts = datetime.now(timezone(timedelta(hours=8))).strftime("%y%m%d")
+
+    def _slug(s: str, max_len: int = 40) -> str:
+        s = s.strip().replace(" ", "_").replace("\\", "_").replace("/", "_")
+        s = re.sub(r'[^a-zA-Z0-9_一-鿿-]', '', s)
+        return s[:max_len].strip("_-") or ""
+
+    name = _slug(topic) or _slug(workflow_name) or _slug(goal)
+    if not name:
+        short = uuid.uuid4().hex[:6]
+        return f"{ts}_{short}"
+
+    return f"{ts}_{name}"
 
 
 class Runner:
@@ -60,6 +71,7 @@ class Runner:
         self,
         workflow: WorkflowConfig,
         goal: str = "",
+        topic: str = "",
         project_root: str = ".",
         run_root: str | None = None,
         agents: dict[str, AgentModel] | None = None,
@@ -69,6 +81,7 @@ class Runner:
     ):
         self.workflow = workflow
         self.goal = goal
+        self.topic = topic
         self.project_root = os.path.abspath(project_root)
 
         # 状态机
@@ -83,7 +96,7 @@ class Runner:
         # 运行根目录
         if run_root is None:
             run_root = os.path.join(
-                self.project_root, ".agent-workflow", "runs"
+                self.project_root, "doc", "runs"
             )
         elif not os.path.isabs(run_root):
             # 相对路径基于 project_root 解析
@@ -132,7 +145,7 @@ class Runner:
         然后调用 continue_from_gate() 继续执行。
 
         Args:
-            run_root: 既有 run 的目录路径（如 .agent-workflow/runs/run_xxx/）
+            run_root: 既有 run 的目录路径（如 doc/runs/run_xxx/）
             workflow: WorkflowConfig 实例
             goal: 工作流目标（空则从 context 读取）
             project_root: 项目根目录
@@ -210,8 +223,23 @@ class Runner:
 
     def start(self) -> str:
         """初始化运行上下文并返回 run_id。"""
-        self._run_id = _generate_run_id()
+        base_name = _generate_run_id(
+            topic=self.topic,
+            workflow_name=self.workflow.name,
+            goal=self.goal,
+        )
+
+        # 同名目录自动 _v1/_v2 递增
+        self._run_id = base_name
         run_root = os.path.join(self.base_run_root, self._run_id)
+        if os.path.exists(run_root):
+            v = 1
+            while True:
+                self._run_id = f"{base_name}_v{v}"
+                run_root = os.path.join(self.base_run_root, self._run_id)
+                if not os.path.exists(run_root):
+                    break
+                v += 1
 
         self.context = RunContext.create(
             workflow_id=self.workflow.name,
@@ -474,7 +502,7 @@ class Runner:
 
         供 cross-cwd cancel CLI 发现 run_root。
         """
-        index_dir = os.path.join(self.project_root, ".agent-workflow")
+        index_dir = os.path.join(self.project_root, "doc")
         os.makedirs(index_dir, exist_ok=True)
         index_path = os.path.join(index_dir, "run_index.json")
 
@@ -1096,7 +1124,7 @@ def cancel_run(
     run_root 发现优先级：
     1. --run-root 显式指定
     2. --project-root + run_index.json 查找
-    3. cwd-relative .agent-workflow/runs/<run_id>/
+    3. cwd-relative doc/runs/<run_id>/
 
     P0 实现：设置取消标记文件。
     Runner 主循环每轮检查此文件，发现后进入 cancelled 状态。
@@ -1106,7 +1134,7 @@ def cancel_run(
         cancel_path = os.path.join(run_root, "cancelled")
     elif project_root:
         # 尝试从 run_index.json 查找
-        index_path = os.path.join(project_root, ".agent-workflow", "run_index.json")
+        index_path = os.path.join(project_root, "doc", "run_index.json")
         found = False
         if os.path.exists(index_path):
             try:
@@ -1118,10 +1146,10 @@ def cancel_run(
             except (json.JSONDecodeError, IOError):
                 pass
         if not found:
-            cancel_path = os.path.join(project_root, ".agent-workflow", "runs", run_id, "cancelled")
+            cancel_path = os.path.join(project_root, "doc", "runs", run_id, "cancelled")
     else:
         # 默认：cwd-relative
-        cancel_path = os.path.join(".agent-workflow", "runs", run_id, "cancelled")
+        cancel_path = os.path.join("doc", "runs", run_id, "cancelled")
 
     try:
         os.makedirs(os.path.dirname(cancel_path), exist_ok=True)

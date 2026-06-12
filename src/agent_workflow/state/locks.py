@@ -20,7 +20,7 @@ class RunLock:
     """文件锁，防止同一 workflow 重复启动。
 
     用法:
-        lock = RunLock(".agent-workflow/locks")
+        lock = RunLock("doc/locks")
         if lock.acquire("software-dev"):
             try:
                 # 运行 workflow
@@ -95,7 +95,7 @@ class RunLock:
             return False
 
 
-def acquire_lock(workflow_id: str, lock_dir: str = ".agent-workflow/locks") -> RunLock | None:
+def acquire_lock(workflow_id: str, lock_dir: str = "doc/locks") -> RunLock | None:
     """便捷函数：获取锁。"""
     lock = RunLock(lock_dir)
     if lock.acquire(workflow_id):

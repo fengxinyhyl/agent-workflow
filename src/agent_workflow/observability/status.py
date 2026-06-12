@@ -33,7 +33,7 @@ def get_status(run_id: str, run_root: str | None = None) -> str:
     返回可读的状态字符串。
     """
     if run_root is None:
-        run_root = os.path.join(".agent-workflow", "runs", run_id)
+        run_root = os.path.join("doc", "runs", run_id)
 
     # 检查运行目录是否存在
     if not os.path.exists(run_root):

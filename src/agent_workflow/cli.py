@@ -54,7 +54,7 @@ def _find_run_root(run_id: str, project_root: str | None = None, run_root_hint: 
     search_roots.append(os.path.abspath("."))
 
     for root in search_roots:
-        index_path = os.path.join(root, ".agent-workflow", "run_index.json")
+        index_path = os.path.join(root, "doc", "run_index.json")
         if os.path.exists(index_path):
             try:
                 with open(index_path, "r", encoding="utf-8") as f:
@@ -66,7 +66,7 @@ def _find_run_root(run_id: str, project_root: str | None = None, run_root_hint: 
 
     # 4. 默认路径
     for root in search_roots:
-        default = os.path.join(root, ".agent-workflow", "runs", run_id)
+        default = os.path.join(root, "doc", "runs", run_id)
         if os.path.exists(default):
             return default
 
@@ -243,6 +243,7 @@ def cmd_run(args):
     runner = Runner(
         wf,
         goal=args.goal,
+        topic=getattr(args, 'topic', '') or '',
         project_root=args.project_root or ".",
         run_root=getattr(args, 'run_root', None) or None,
         agents=agents_dict if agents_dict else None,
@@ -415,8 +416,10 @@ def build_parser():
     p = sub.add_parser("run", help="启动 workflow")
     p.add_argument("--workflow", "-w", required=True, help="workflow YAML 路径")
     p.add_argument("--goal", "-g", required=True, help="Workflow 目标描述")
+    p.add_argument("--topic", "-t", default="",
+                   help="任务名称（用于 run 目录命名，如 260612_project_create）")
     p.add_argument("--project-root", "-p", help="项目根目录（默认当前目录）")
-    p.add_argument("--run-root", help="运行产物根目录（默认 {project_root}/.agent-workflow/runs）。可指定为 doc/ 等自定义路径")
+    p.add_argument("--run-root", help="运行产物根目录（默认 {project_root}/doc/runs）")
     p.add_argument("--roles", help="roles YAML 路径（默认自动发现 workflow 同目录下的 roles.yaml）")
     p.add_argument("--agents", help="agents YAML 路径（默认自动发现 workflow 同目录下的 agents.yaml）")
     p.add_argument("--skills-dir", help="skills 目录（默认自动发现 workflow 同目录下的 skills/）")

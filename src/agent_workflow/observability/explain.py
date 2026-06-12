@@ -32,7 +32,7 @@ def get_explanation(run_id: str, run_root: str | None = None) -> str:
     返回可读的解释字符串。
     """
     if run_root is None:
-        run_root = os.path.join(".agent-workflow", "runs", run_id)
+        run_root = os.path.join("doc", "runs", run_id)
 
     if not os.path.exists(run_root):
         return f"[FAIL] 未找到运行: {run_id}"
