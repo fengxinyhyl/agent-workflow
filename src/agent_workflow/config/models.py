@@ -2,7 +2,7 @@
 
 所有模型严格遵循 v4 计划约束：
 - Task 禁止: transition, guard, retry, validator, provider, runtime
-- Role 禁止: capability, policy, validator, contract, guard
+- Task 直接指定 agent，不再通过 Role 间接寻址
 - Transition 必须有 default
 - Guard 支持: max_visits, max_duration_minutes, max_retries
 """
@@ -17,12 +17,12 @@ from typing import Any
 class TaskModel:
     """Task 配置（瘦模型）。
 
-    Task 只描述：执行什么、输入是什么、输出是什么、由哪个 role 执行。
+    Task 只描述：执行什么、输入是什么、输出是什么、由哪个 agent 执行。
     """
 
     name: str = ""
     instruction: str = ""
-    role: str = ""
+    agent: str = ""  # agent 名称（直接引用 agents.yaml 中的 agent name）
     inputs: list[str] = field(default_factory=list)
     output: str = ""
 
@@ -43,7 +43,7 @@ class TaskModel:
         return {
             "name": self.name,
             "instruction": self.instruction,
-            "role": self.role,
+            "agent": self.agent,
             "inputs": self.inputs,
             "output": self.output,
             "description": self.description,
@@ -96,28 +96,6 @@ class StateModel:
 
 
 @dataclass
-class RoleModel:
-    """Role 配置（最小）。
-
-    Role 只是一个 agent alias，可选 fallback。
-    禁止承载：capability、policy、validator、contract、guard。
-    """
-
-    name: str = ""
-    agent: str = ""  # primary agent name
-    fallback_agents: list[str] = field(default_factory=list)
-    description: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "name": self.name,
-            "agent": self.agent,
-            "fallback_agents": self.fallback_agents,
-            "description": self.description,
-        }
-
-
-@dataclass
 class AgentModel:
     """Agent Profile 配置。
 
@@ -125,7 +103,7 @@ class AgentModel:
     """
 
     name: str = ""
-    provider: str = ""  # claude / codex / deepseek / mock
+    provider: str = ""  # claude / codex / mock
     command: str = ""  # 可包含环境变量占位符如 {CODEX_COMMAND}
     cwd: str = "{project_root}"
     sandbox: str = ""  # workspace-write / workspace-read / none
@@ -182,7 +160,6 @@ class WorkflowConfig:
       description: 描述
       tasks: Task 列表（按 name 索引）
       states: State 列表（按 name 索引）
-      roles: Role 列表（按 name 索引）
       guards: 全局 Guard 配置
       initial_state: 初始状态名称
       terminal_states: 终止状态名称列表
@@ -194,7 +171,6 @@ class WorkflowConfig:
     description: str = ""
     tasks: dict[str, TaskModel] = field(default_factory=dict)
     states: dict[str, StateModel] = field(default_factory=dict)
-    roles: dict[str, RoleModel] = field(default_factory=dict)
     guards: GuardModel = field(default_factory=GuardModel)
     initial_state: str = ""
     terminal_states: list[str] = field(default_factory=list)
@@ -212,14 +188,12 @@ class WorkflowConfig:
             return None
         return self.tasks.get(state.task)
 
-    def get_role(self, name: str) -> RoleModel | None:
-        return self.roles.get(name)
-
-    def get_role_for_state(self, state_name: str) -> RoleModel | None:
+    def get_agent_for_state(self, state_name: str) -> str:
+        """获取某 state 对应的 agent 名称。"""
         task = self.get_task_for_state(state_name)
         if task is None:
-            return None
-        return self.roles.get(task.role)
+            return "mock"
+        return task.agent or "mock"
 
     def is_terminal(self, state_name: str) -> bool:
         return state_name in self.terminal_states
@@ -257,15 +231,7 @@ class WorkflowConfig:
                     f"state '{name}' default → '{state.default}' 目标 state 未定义"
                 )
 
-        # 5. Task 引用的 role 存在
-        for name, task in self.tasks.items():
-            if task.role and task.role not in self.roles:
-                issues.append(f"task '{name}' 引用的 role '{task.role}' 未定义")
-
-        # 6. Role 引用的 agent 存在（这个需要在加载 agents 后校验）
-        #    此处只做基本检查：如果 role.agent 为空且 fallback 也为空，报告
-
-        # 7. 终止状态不能有 on 转换
+        # 5. 终止状态不能有 on 转换
         for name in self.terminal_states:
             if name in self.states:
                 state = self.states[name]
@@ -281,9 +247,57 @@ class WorkflowConfig:
             "description": self.description,
             "tasks": {n: t.to_dict() for n, t in self.tasks.items()},
             "states": {n: s.to_dict() for n, s in self.states.items()},
-            "roles": {n: r.to_dict() for n, r in self.roles.items()},
             "guards": self.guards.to_dict(),
             "initial_state": self.initial_state,
             "terminal_states": self.terminal_states,
             "required_skills": self.required_skills,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "WorkflowConfig":
+        """从字典重建 WorkflowConfig（用于从 _workflow_snapshot 恢复）。"""
+        tasks = {
+            n: TaskModel(
+                name=t.get("name", n),
+                instruction=t.get("instruction", ""),
+                agent=t.get("agent", t.get("role", "")),  # 兼容旧 role 字段
+                inputs=t.get("inputs", []),
+                output=t.get("output", ""),
+                description=t.get("description", ""),
+                timeout_seconds=t.get("timeout_seconds", 3600),
+                allowed_decisions=t.get("allowed_decisions", []),
+                skills=t.get("skills", []),
+                version_strategy=t.get("version_strategy", "overwrite"),
+            )
+            for n, t in data.get("tasks", {}).items()
+        }
+        states = {
+            n: StateModel(
+                name=s.get("name", n),
+                task=s.get("task", ""),
+                on=s.get("on", {}),
+                default=s.get("default", "failed"),
+                description=s.get("description", ""),
+                terminal=s.get("terminal", False),
+                gate=s.get("gate", False),
+            )
+            for n, s in data.get("states", {}).items()
+        }
+        guards_data = data.get("guards", {})
+        guards = GuardModel(
+            max_visits=guards_data.get("max_visits", 0),
+            max_duration_minutes=guards_data.get("max_duration_minutes", 0),
+            max_retries=guards_data.get("max_retries", 0),
+            on_guard_failed=guards_data.get("on_guard_failed", "failed"),
+        )
+        return cls(
+            name=data.get("name", ""),
+            version=data.get("version", "1"),
+            description=data.get("description", ""),
+            tasks=tasks,
+            states=states,
+            guards=guards,
+            initial_state=data.get("initial_state", ""),
+            terminal_states=data.get("terminal_states", []),
+            required_skills=data.get("required_skills", []),
+        )

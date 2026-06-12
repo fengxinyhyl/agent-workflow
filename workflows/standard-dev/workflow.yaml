@@ -43,7 +43,7 @@ tasks:
       4. 测试策略
       5. 风险和停止规则
       6. 预期产物
-    role: planner
+    agent: cc-opus
     input:
       - goal
       - project_context
@@ -63,7 +63,7 @@ tasks:
       审核 plan_doc。只评价计划，不执行代码。
       必须识别 blocking 问题、主要风险、缺失测试和可简化点。
       输出 review_doc，并使用 done 表示审核完成。
-    role: reviewer
+    agent: cc-deepseek
     input:
       - plan_doc
       - project_context
@@ -87,7 +87,7 @@ tasks:
       - approve: 计划可以进入编程
       - revise: 计划需要回到 plan 重写
       - reject: 目标或方案不可行，终止
-    role: advisor
+    agent: cc-opus
     input:
       - plan_doc
       - review_doc
@@ -105,7 +105,7 @@ tasks:
       必须保持改动范围紧凑，遵守项目现有风格。
       如发现计划不成立，输出 blocked 并说明阻塞原因。
       输出 implementation_report，记录实际修改、命令、偏差和验证情况。
-    role: executor
+    agent: codex
     input:
       - plan_doc
       - adoption_doc
@@ -127,7 +127,7 @@ tasks:
       - approve: 可进入单元测试
       - revise: 需要回到 implement 修复
       - reject: 变更不可接受，终止
-    role: auditor
+    agent: cc-deepseek
     input:
       - plan_doc
       - adoption_doc
@@ -150,7 +150,7 @@ tasks:
       - approve: 测试通过或无法运行但风险已清楚记录
       - revise: 测试失败且需要回到 implement 修复
       - reject: 测试暴露不可接受问题，终止
-    role: tester
+    agent: codex
     input:
       - plan_doc
       - implementation_report
@@ -171,7 +171,7 @@ tasks:
       3. 修改文件和产物流清单
       4. 测试结果
       5. 残余风险和后续建议
-    role: summarizer
+    agent: cc-opus
     input:
       - plan_doc
       - adoption_doc

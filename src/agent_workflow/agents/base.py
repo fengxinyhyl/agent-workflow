@@ -277,7 +277,8 @@ class BaseAgent:
         def _replace(match: re.Match[str]) -> str:
             name = match.group(1)
             resolved = _get_env(name)
-            if not resolved and name in {"CODEX_COMMAND", "CLAUDE_COMMAND"}:
+            # 对任意 {XXX_COMMAND} 占位符自动尝试 AGENT_WORKFLOW_XXX 回退
+            if not resolved and name.endswith("_COMMAND"):
                 resolved = _get_env(f"AGENT_WORKFLOW_{name}")
             return resolved or match.group(0)
 

@@ -3,7 +3,7 @@
 import pytest
 
 from agent_workflow.config.models import (
-    WorkflowConfig, TaskModel, StateModel, RoleModel, GuardModel,
+    WorkflowConfig, TaskModel, StateModel, GuardModel,
 )
 from agent_workflow.state_machine import StateMachine, GuardChecker, resolve_transition
 from agent_workflow.context import RunContext
@@ -18,8 +18,8 @@ class TestStateMachine:
             initial_state="start",
             terminal_states=["done", "failed"],
             tasks={
-                "work": TaskModel(name="work", instruction="做工作", role="worker"),
-                "review": TaskModel(name="review", instruction="审查", role="reviewer"),
+                "work": TaskModel(name="work", instruction="做工作", agent="mock"),
+                "review": TaskModel(name="review", instruction="审查", agent="mock"),
             },
             states={
                 "start": StateModel(
@@ -34,10 +34,6 @@ class TestStateMachine:
                 ),
                 "done": StateModel(name="done", terminal=True),
                 "failed": StateModel(name="failed", terminal=True),
-            },
-            roles={
-                "worker": RoleModel(name="worker", agent="mock"),
-                "reviewer": RoleModel(name="reviewer", agent="mock"),
             },
         )
 
@@ -154,14 +150,14 @@ class TestGateState:
             initial_state="plan",
             terminal_states=["done", "failed"],
             tasks={
-                "make_plan": TaskModel(name="make_plan", instruction="制定计划", role="planner"),
+                "make_plan": TaskModel(name="make_plan", instruction="制定计划", agent="mock"),
                 "request_approval": TaskModel(
                     name="request_approval",
                     instruction="生成审批请求文档",
-                    role="approver",
+                    agent="mock",
                     allowed_decisions=["request_approval"],
                 ),
-                "execute_work": TaskModel(name="execute_work", instruction="执行工作", role="worker"),
+                "execute_work": TaskModel(name="execute_work", instruction="执行工作", agent="mock"),
             },
             states={
                 "plan": StateModel(
@@ -182,11 +178,6 @@ class TestGateState:
                 ),
                 "done": StateModel(name="done", terminal=True),
                 "failed": StateModel(name="failed", terminal=True),
-            },
-            roles={
-                "planner": RoleModel(name="planner", agent="mock"),
-                "approver": RoleModel(name="approver", agent="mock"),
-                "worker": RoleModel(name="worker", agent="mock"),
             },
         )
 

@@ -7,9 +7,6 @@
 #     advise  → advise → plan        （回流：带着修改建议重做计划）
 #     reject  → failed
 #   execute → done | failed
-#
-# mock 模式下配合同目录 mock_script.yaml 可演示完整回流：
-#   review 第 1 次访问返回 advise（触发 plan 重做），第 2 次返回 approve（进入 execute）。
 
 name: plan-review-advise-execute
 version: "1"
@@ -18,26 +15,20 @@ description: |
 
 initial_state: plan
 
-# Guard 配置
 guards:
-  max_visits: 5              # 每条 state 最多访问 5 次（防止 review/advise 无限回流）
+  max_visits: 5
   max_duration_minutes: 120
   max_retries: 3
   on_guard_failed: failed
 
-# 终止状态
 terminal_states:
   - done
   - failed
   - cancelled
 
-# 必需的 Skills
 required_skills:
   - agent-workflow-lifecycle
 
-# Task 定义
-# 每个 task 只描述: 执行什么、输入是什么、输出是什么、由哪个 role 执行
-# 禁止: transition、guard、retry、validator、provider、runtime
 tasks:
   plan:
     instruction: |
@@ -48,7 +39,7 @@ tasks:
       3. 测试策略
       4. 风险点
       5. 停止规则
-    role: planner
+    agent: cc-opus
     input:
       - goal
       - project_context
@@ -69,7 +60,7 @@ tasks:
       5. 复杂度 — 是否可以简化
 
       输出 approve（可以执行）、advise（需要带建议重做计划）或 reject（不可行）。
-    role: reviewer
+    agent: cc-deepseek
     input:
       - plan_doc
       - project_context
@@ -85,7 +76,7 @@ tasks:
       1. 哪些问题必须修复（blocking）
       2. 建议的修改方向
       3. 不采纳的审查意见及原因
-    role: advisor
+    agent: cc-opus
     input:
       - plan_doc
       - review_doc
@@ -100,7 +91,7 @@ tasks:
       按照已批准的实现计划执行代码变更。
       严格按照计划步骤进行，不要跳过验证步骤。
       如果计划在执行中发现问题，输出 blocked 并说明原因。
-    role: executor
+    agent: codex
     input:
       - plan_doc
       - project_context
@@ -110,9 +101,6 @@ tasks:
       - fail
       - blocked
 
-# State 定义
-# Transition 由 Runner 根据 TaskResult.decision 决定
-# 未知 decision 走 default
 states:
   plan:
     task: plan

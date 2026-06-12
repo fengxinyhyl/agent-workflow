@@ -1,4 +1,4 @@
-"""配置加载器 — 从 YAML 文件加载 Workflow/Agent/Role 配置。"""
+"""配置加载器 — 从 YAML 文件加载 Workflow/Agent 配置。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from .models import (
     WorkflowConfig,
     TaskModel,
     StateModel,
-    RoleModel,
     AgentModel,
     GuardModel,
 )
@@ -92,7 +91,7 @@ def load_task(data: dict[str, Any]) -> TaskModel:
     return TaskModel(
         name=data.get("name", ""),
         instruction=data.get("instruction", ""),
-        role=data.get("role", ""),
+        agent=data.get("agent", data.get("role", "")),  # 兼容旧 role 字段
         inputs=data.get("input", data.get("inputs", [])),
         output=data.get("output", ""),
         description=data.get("description", ""),
@@ -112,30 +111,6 @@ def load_state(data: dict[str, Any]) -> StateModel:
         description=data.get("description", ""),
         terminal=data.get("terminal", False),
         gate=data.get("gate", False),
-    )
-
-
-def load_role(data: dict[str, Any]) -> RoleModel:
-    """从字典加载 RoleModel。
-
-    Role 禁止出现: capability、policy、validator、contract、guard。
-    命中时抛 ValueError。
-    """
-    _check_forbidden_keys(
-        data,
-        [
-            "capability", "capabilities", "policy", "validator",
-            "contract", "guard", "guards",
-        ],
-        entity_type="Role",
-        entity_name=data.get("name", "(unknown)"),
-    )
-    # 支持简化格式: planner: codex_plan → {name: planner, agent: codex_plan}
-    return RoleModel(
-        name=data.get("name", ""),
-        agent=data.get("agent", ""),
-        fallback_agents=data.get("fallback_agents", data.get("fallback", [])),
-        description=data.get("description", ""),
     )
 
 
@@ -354,23 +329,6 @@ def load_workflow(path: str) -> WorkflowConfig:
     # ── 展开 _loop 块（必须在加载 states 之后、计算 terminal states 之前）──
     states = _unroll_loops(resolved, states)
 
-    # 加载 roles
-    roles = {}
-    roles_raw = resolved.get("roles", {})
-    if isinstance(roles_raw, dict):
-        for name, item in roles_raw.items():
-            if isinstance(item, str):
-                # 简化格式: planner: codex_plan
-                roles[name] = RoleModel(name=name, agent=item)
-            elif isinstance(item, dict):
-                item["name"] = name
-                role = load_role(item)
-                roles[name] = role
-    elif isinstance(roles_raw, list):
-        for item in roles_raw:
-            role = load_role(item)
-            roles[role.name] = role
-
     # 加载 guards
     guards = load_guard(resolved.get("guards", {}))
 
@@ -389,7 +347,6 @@ def load_workflow(path: str) -> WorkflowConfig:
         description=resolved.get("description", ""),
         tasks=tasks,
         states=states,
-        roles=roles,
         guards=guards,
         initial_state=resolved.get("initial_state", ""),
         terminal_states=terminal_states,
@@ -425,27 +382,3 @@ def load_agents_config(path: str) -> dict[str, AgentModel]:
     return agents
 
 
-def load_roles_config(path: str) -> dict[str, RoleModel]:
-    """从 YAML 文件加载 Role 配置。
-
-    用法:
-        roles = load_roles_config("workflows/software-dev/roles.yaml")
-    """
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.load(f, Loader=_SafeStringLoader)
-
-    if data is None:
-        return {}
-
-    roles_raw = data.get("roles", data)
-    roles = {}
-
-    if isinstance(roles_raw, dict):
-        for name, item in roles_raw.items():
-            if isinstance(item, str):
-                roles[name] = RoleModel(name=name, agent=item)
-            elif isinstance(item, dict):
-                item["name"] = name
-                roles[name] = load_role(item)
-
-    return roles

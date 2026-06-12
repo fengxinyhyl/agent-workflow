@@ -17,13 +17,13 @@ from .run_context import RunContext
 class TaskConfig:
     """Task 配置（瘦模型）。
 
-    Task 只描述：执行什么、输入是什么、输出是什么、由哪个 role 执行。
+    Task 只描述：执行什么、输入是什么、输出是什么、由哪个 agent 执行。
     禁止出现：transition、guard、retry、validator、provider、runtime。
     """
 
     name: str = ""
     instruction: str = ""
-    role: str = ""
+    agent: str = ""
     inputs: list[str] = field(default_factory=list)
     output: str = ""
 
@@ -109,8 +109,20 @@ class AgentInput:
             parts.append('  "schema_version": 1,\n')
             parts.append(f'  "task_id": "{self.task.name if self.task else "task"}",\n')
             parts.append(f'  "state": "{self.state_name or "state"}",\n')
+            # 示例 decision 使用 allowed_decisions 的第一个值，而非硬编码 "done"
+            example_decision = "done"
+            allowed = self.skill_policy.get("allowed_decisions", [])
+            if allowed:
+                example_decision = allowed[0]
+            elif self.expected_task_result_schema:
+                decision_prop = (
+                    self.expected_task_result_schema.get("properties", {})
+                    .get("decision", {})
+                )
+                if "enum" in decision_prop and decision_prop["enum"]:
+                    example_decision = decision_prop["enum"][0]
             parts.append('  "status": "success",\n')
-            parts.append('  "decision": "done",\n')
+            parts.append(f'  "decision": "{example_decision}",\n')
             parts.append('  "summary": "任务完成的简要描述",\n')
             parts.append('  "artifacts": [],\n')
             parts.append('  "execution": {"started_at": "", "finished_at": "", "exit_code": 0}\n')
@@ -137,6 +149,9 @@ class AgentInput:
                 "2. 先写文件，再登记——不要声明一个尚未落盘的产物。\n"
                 "3. 没有实际产出文件的产物，就不要写进 `artifacts` 列表（留空数组即可）。\n"
                 "4. 上面列出的输出路径是引擎期望的产物，请按需逐个写入并登记。\n"
+                "5. `artifact_path` 必须是扁平路径 \"artifacts/<输出名>.md\"，"
+                "不要包含子目录（如禁止 artifacts/plan/output.md），"
+                "输出名取 `staging_path` 的文件名即可（如 plan_doc.md → \"artifacts/plan_doc.md\"）。\n"
             )
 
         # 7. 技能策略

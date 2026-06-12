@@ -8,7 +8,6 @@ import yaml
 from agent_workflow.config import (
     TaskModel,
     StateModel,
-    RoleModel,
     AgentModel,
     GuardModel,
     WorkflowConfig,
@@ -24,18 +23,18 @@ class TestTaskModel:
         task = TaskModel(
             name="plan",
             instruction="编写实现计划",
-            role="planner",
+            agent="cc-opus",
             inputs=["goal"],
             output="plan_doc",
         )
         assert task.name == "plan"
-        assert task.role == "planner"
+        assert task.agent == "cc-opus"
 
     def test_allowed_decisions(self):
         task = TaskModel(
             name="review",
             instruction="审查",
-            role="reviewer",
+            agent="cc-deepseek",
             allowed_decisions=["approve", "revise", "reject"],
         )
         assert "revise" in task.allowed_decisions
@@ -103,15 +102,12 @@ class TestWorkflowConfig:
             initial_state="start",
             terminal_states=["done", "failed"],
             tasks={
-                "do_work": TaskModel(name="do_work", instruction="做工作", role="worker"),
+                "do_work": TaskModel(name="do_work", instruction="做工作", agent="mock"),
             },
             states={
                 "start": StateModel(name="start", task="do_work", on={"done": "done"}, default="failed"),
                 "done": StateModel(name="done", terminal=True),
                 "failed": StateModel(name="failed", terminal=True),
-            },
-            roles={
-                "worker": RoleModel(name="worker", agent="mock"),
             },
         )
 
@@ -125,12 +121,6 @@ class TestWorkflowConfig:
         wf.initial_state = "nonexistent"
         issues = wf.validate()
         assert any("initial_state" in i for i in issues)
-
-    def test_validate_task_role_missing(self):
-        wf = self._make_minimal_workflow()
-        wf.tasks["do_work"].role = "nonexistent_role"
-        issues = wf.validate()
-        assert any("role" in i for i in issues)
 
     def test_validate_transition_invalid(self):
         wf = self._make_minimal_workflow()

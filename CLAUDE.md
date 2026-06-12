@@ -88,7 +88,6 @@ src/agent_workflow/
   context/                 # RunContext（可序列化到 workflow_state.json，支持断点续跑）+ AgentInput
   long_task/               # 长任务 MVP：WorkflowRun / WorkItem / DependencyGraph / EventLog / StateStore / QueueRunner
   state/                   # 状态持久化与锁
-  roles/                   # Role → Agent 名称解析
 ```
 
 ### 数据流与关键路径
@@ -98,7 +97,7 @@ CLI (run) → load_workflow(YAML) → Runner.start() → Runner.run() 主循环:
   1. Guard 检查（max_visits / max_duration / max_retries）
   2. 发射 StateEntered 事件
   3. _execute_state:
-     a. Role → Agent 解析
+     a. Task → Agent 解析（task.agent 直接指定）
      b. Skill adoption（加载 required skills + task skills）
      c. 构建 AgentInput（task + context + skill_context + staging_paths + schema）
      d. Agent.execute() → 子进程运行 Claude/Codex CLI → 解析 stream-json 输出
@@ -133,7 +132,7 @@ required_skills: [agent-workflow-lifecycle]
 tasks:
   <name>:
     instruction: "..."      # Agent prompt
-    role: planner           # 引用 roles 中的 key
+    agent: cc-opus           # 直接指定 agent（引用 agents.yaml 中的 agent name）
     inputs: [goal, ...]     # 输入产物流名称
     output: plan_doc        # 输出产物流名称
     skills: [dev-plan]      # 此 task 需要的 skill
@@ -146,10 +145,6 @@ states:
     on: {done: review, fail: failed}
     default: failed
     gate: false             # true = 需外部 approve 才能继续
-
-roles:
-  <name>:
-    agent: claude_plan      # 映射到 agents.yaml 中的 agent name
 ```
 
 ### 产物流版本策略
@@ -199,7 +194,7 @@ roles:
 ## 关键约定
 
 - TaskModel 禁止包含 transition / guard / retry / validator / provider / runtime 字段（v4 瘦模型）
-- RoleModel 禁止包含 capability / policy / validator / contract / guard（Role 只是 agent alias）
+- TaskModel.agent 直接引用 agents.yaml 中的 agent 名，无需通过 Role 间接寻址
 - 所有 TaskResult 写入 staging 后必须经 `_validate_task_result()` 校验（含路径 containment 检查）
 - promotion 前检查 staging 文件路径不逃逸 `run_root/staging/`，artifact 路径不逃逸 `run_root/artifacts/`
 - `cancel` 通过写入 `cancelled` 标记文件实现，Runner 主循环每轮检查

@@ -72,7 +72,7 @@ TASK_RESULT_SCHEMA: dict[str, Any] = {
                     },
                     "artifact_path": {
                         "type": "string",
-                        "description": "预期的正式 artifact 路径",
+                        "description": "预期的正式 artifact 路径（扁平结构，如 artifacts/plan_doc.md，禁止包含子目录）",
                     },
                     "type": {
                         "type": "string",

@@ -13,13 +13,13 @@ import tempfile
 import pytest
 import yaml
 
-from agent_workflow.config.loader import load_workflow, load_roles_config
+from agent_workflow.config.loader import load_workflow
 from agent_workflow.state_machine.runner import Runner
 
 
 EXAMPLES_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "examples", "plan-review-advise-execute",
+    "workflows", "plan-review-advise-execute",
 )
 
 
@@ -38,12 +38,6 @@ def _load_mock_script() -> dict:
 def _build_runner(tmpdir: str) -> Runner:
     """构造一个使用真实示例配置 + mock_script 的 Runner。"""
     wf = load_workflow(os.path.join(EXAMPLES_DIR, "workflow.yaml"))
-
-    # 合并 roles（与 CLI cmd_run 行为一致）
-    roles = load_roles_config(os.path.join(EXAMPLES_DIR, "roles.yaml"))
-    for name, role in roles.items():
-        if name not in wf.roles:
-            wf.roles[name] = role
 
     return Runner(
         wf,

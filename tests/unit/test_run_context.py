@@ -106,7 +106,7 @@ class TestAgentInput:
         task = TaskConfig(
             name="review_plan",
             instruction="审查实现计划",
-            role="reviewer",
+            agent="reviewer",
             inputs=["plan_doc"],
             output="review_doc",
         )
@@ -134,7 +134,7 @@ class TestAgentInput:
         task = TaskConfig(
             name="plan",
             instruction="编写计划",
-            role="planner",
+            agent="planner",
         )
         agent_input = AgentInput(
             task=task,

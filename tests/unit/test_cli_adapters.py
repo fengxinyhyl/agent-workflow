@@ -42,7 +42,7 @@ def _agent_input(tmp_path, state: str = "plan") -> AgentInput:
         task=TaskConfig(
             name=state,
             instruction="执行当前任务并输出 TaskResult JSON",
-            role="planner",
+            agent="planner",
             output="plan_doc",
         ),
         context=RunContext.create(

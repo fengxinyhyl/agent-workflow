@@ -1,34 +1,30 @@
 # Agent 配置
 # 真实运行时通过 --agents 显式指定本文件。
-# 默认 mock 跑通时不自动发现本文件，Runner 会 fallback 到 MockAgent。
+# command 中的 {VAR} 占位符从 .env 文件或系统环境变量读取。
 
 agents:
-  codex_plan:
-    provider: codex
-    command: "{CODEX_COMMAND}"
-    cwd: "{project_root}"
-    sandbox: workspace-write
-    timeout_seconds: 3600
-    description: "Codex — 开发计划/总结"
-
-  claude_review:
+  cc-opus:
     provider: claude
-    command: "{CLAUDE_COMMAND}"
+    command: "{OPUS_COMMAND}"
     cwd: "{project_root}"
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write,Edit,Bash"
     timeout_seconds: 3600
-    description: "Claude — 审核与采纳"
+    description: "Claude Opus — 计划/采纳/总结"
 
-  codex_execute:
+  cc-deepseek:
+    provider: claude
+    command: "{DEEPSEEK_COMMAND}"
+    cwd: "{project_root}"
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write,Edit,Bash"
+    timeout_seconds: 3600
+    description: "Claude DeepSeek — 审核/代码检查"
+
+  codex:
     provider: codex
     command: "{CODEX_COMMAND}"
     cwd: "{project_root}"
     sandbox: workspace-write
     timeout_seconds: 7200
-    description: "Codex — 编程和测试执行"
-
-  claude_audit:
-    provider: claude
-    command: "{CLAUDE_COMMAND}"
-    cwd: "{project_root}"
-    timeout_seconds: 3600
-    description: "Claude — 代码检查"
+    description: "Codex — 编程执行和测试"

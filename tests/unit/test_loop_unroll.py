@@ -39,36 +39,29 @@ terminal_states: [done, failed]
 tasks:
   plan:
     instruction: "编写计划"
-    role: planner
+    agent: mock
     output: plan_doc
     allowed_decisions: [done, fail]
   review:
     instruction: "审核计划"
-    role: reviewer
+    agent: mock
     output: review_doc
     allowed_decisions: [done, fail]
   advise:
     instruction: "决定"
-    role: advisor
+    agent: mock
     output: advise_doc
     allowed_decisions: [approve, revise, reject]
   execute:
     instruction: "执行"
-    role: executor
+    agent: mock
     output: execution_report
     allowed_decisions: [done, fail]
   summary:
     instruction: "总结"
-    role: summarizer
+    agent: mock
     output: summary_report
     allowed_decisions: [done, fail]
-
-roles:
-  planner: mock
-  reviewer: mock
-  advisor: mock
-  executor: mock
-  summarizer: mock
 
 states:
   plan:

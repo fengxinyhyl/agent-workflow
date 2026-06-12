@@ -3,23 +3,20 @@
 from .models import (
     TaskModel,
     StateModel,
-    RoleModel,
     AgentModel,
     GuardModel,
     WorkflowConfig,
 )
-from .loader import load_workflow, load_agents_config, load_roles_config
+from .loader import load_workflow, load_agents_config
 from .env import EnvResolver
 
 __all__ = [
     "TaskModel",
     "StateModel",
-    "RoleModel",
     "AgentModel",
     "GuardModel",
     "WorkflowConfig",
     "load_workflow",
     "load_agents_config",
-    "load_roles_config",
     "EnvResolver",
 ]

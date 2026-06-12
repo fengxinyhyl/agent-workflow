@@ -3,7 +3,7 @@
 P0 CLI 命令：
   validate-config       校验配置文件
   validate-state-machine  校验状态机完备性
-  smoke                 单个 Agent/Role 冒烟测试
+  smoke                 单个 Agent 冒烟测试
   run                   启动 workflow
   status                查看运行状态
   explain               解释当前等待项和可能的后续状态
@@ -123,16 +123,16 @@ def cmd_validate_state_machine(args):
 
 
 def cmd_smoke(args):
-    """单个 Agent/Role 冒烟测试。"""
+    """单个 Agent 冒烟测试。"""
     from .agents.registry import AgentRegistry
     from .config.loader import load_agents_config
 
     agents_config = load_agents_config(args.agents) if args.agents else {}
     registry = AgentRegistry(agents_config)
 
-    target = args.agent or args.role
+    target = args.agent
     if not target:
-        safe_print(f"[FAIL] 需要指定 --agent 或 --role")
+        safe_print(f"[FAIL] 需要指定 --agent")
         return 1
 
     safe_print(f"[*] 冒烟测试: {target}")
@@ -150,10 +150,10 @@ def cmd_smoke(args):
         return 1
 
 
-def _discover_roles_and_agents(args):
-    """P0e: 自动发现 workflow 同目录下的 roles.yaml / agents.yaml。
+def _discover_agents(args):
+    """P0e: 自动发现 workflow 同目录下的 agents.yaml。
 
-    返回 (roles, agents_dict, skills_dir)。
+    返回 (agents_dict, skills_dir, mock_script)。
     CLI 参数覆盖自动发现。
     """
     import os
@@ -161,28 +161,6 @@ def _discover_roles_and_agents(args):
     wf_dir = os.path.dirname(os.path.abspath(args.workflow))
     agents_dict = {}
     skills_dir = None
-
-    # 加载 roles（如果存在或通过 CLI 指定）
-    roles_path = getattr(args, 'roles', None)
-    if not roles_path:
-        auto_roles = os.path.join(wf_dir, "roles.yaml")
-        if os.path.exists(auto_roles):
-            roles_path = auto_roles
-
-    if roles_path and os.path.exists(roles_path):
-        try:
-            from .config.loader import load_roles_config
-            roles_config = load_roles_config(roles_path)
-            # 将 roles 合并到 workflow.roles（在 Runner 中使用）
-            has_roles = True
-        except Exception:
-            import sys
-            safe_print(f"[WARN] 加载 roles 配置失败: {roles_path}")
-            roles_config = {}
-            has_roles = False
-    else:
-        roles_config = {}
-        has_roles = False
 
     # 加载 agents
     agents_path = getattr(args, 'agents', None)
@@ -221,7 +199,7 @@ def _discover_roles_and_agents(args):
         except Exception:
             safe_print(f"[WARN] 加载 mock_script 失败: {mock_script_path}")
 
-    return roles_config, agents_dict, skills_dir, mock_script
+    return agents_dict, skills_dir, mock_script
 
 
 def cmd_run(args):
@@ -231,14 +209,8 @@ def cmd_run(args):
 
     wf = load_workflow(args.workflow)
 
-    # P0e: 自动发现并加载 roles/agents
-    roles_config, agents_dict, skills_dir, mock_script = _discover_roles_and_agents(args)
-
-    # 合并 roles 到 workflow（如果 workflow 中未内嵌 roles）
-    if roles_config:
-        for name, role in roles_config.items():
-            if name not in wf.roles:
-                wf.roles[name] = role
+    # P0e: 自动发现并加载 agents
+    agents_dict, skills_dir, mock_script = _discover_agents(args)
 
     runner = Runner(
         wf,
@@ -352,14 +324,50 @@ def cmd_retry(args):
         return 1
 
     if dry_run:
-        safe_print(f"[*] Dry-run 重试预览: run={args.run_id}, from={from_state or 'last failed'}")
+        safe_print(f"[*] Dry-run 重试预览: run={args.run_id}, from={from_state or 'auto-detect'}")
     else:
-        safe_print(f"[FIX] 执行重试: run={args.run_id}, from={from_state or 'last failed'}")
+        safe_print(f"[FIX] 执行重试: run={args.run_id}, from={from_state or 'auto-detect'}")
+
+    # dispatch 模式下尝试自动发现 agents/skills
+    agents_dict = None
+    skills_dir = None
+    if dispatch:
+        workflow_path = getattr(args, 'workflow', None)
+        if workflow_path and os.path.exists(workflow_path):
+            safe_print(f"[*] 自动发现 agents/skills: {os.path.dirname(workflow_path)}")
+            try:
+                agents_dict, skills_dir, _ = _discover_agents(args)
+            except Exception:
+                safe_print("[WARN] 自动发现 agents/skills 失败，将使用 mock agent")
 
     from .state_machine.retry import retry_run
-    result = retry_run(args.run_id, from_state=from_state, dry_run=dry_run, run_root=run_root)
+    result = retry_run(
+        args.run_id,
+        from_state=from_state,
+        dry_run=dry_run,
+        run_root=run_root,
+        project_root=getattr(args, 'project_root', None) or ".",
+        agents=agents_dict,
+        skills_dir=skills_dir,
+    )
+
     if result.get("ok"):
-        safe_print(f"[OK] 重试预览完成" if dry_run else f"[OK] 重试完成")
+        if dry_run:
+            safe_print(f"[OK] 重试预览完成")
+            # 输出预览步骤
+            for step in result.get("steps", []):
+                safe_print(f"  - {step['action']}: {step['status']}")
+                detail = step.get("detail", {})
+                if isinstance(detail, dict):
+                    for k, v in detail.items():
+                        if k == "operations":
+                            for op in v:
+                                safe_print(f"      • {op}")
+                        elif k == "next_states":
+                            safe_print(f"      {k}: {v}")
+        else:
+            final = result.get("final_state", "?")
+            safe_print(f"[OK] 重试完成 → 终态: {final}")
     else:
         safe_print(f"[FAIL] 重试失败: {result.get('error', 'unknown')}")
     return 0 if result.get("ok") else 1
@@ -406,9 +414,8 @@ def build_parser():
     p.set_defaults(func=cmd_validate_state_machine)
 
     # smoke
-    p = sub.add_parser("smoke", help="Agent/Role 冒烟测试")
+    p = sub.add_parser("smoke", help="Agent 冒烟测试")
     p.add_argument("--agent", help="Agent 名称")
-    p.add_argument("--role", help="Role 名称")
     p.add_argument("--agents", help="agents YAML 路径")
     p.set_defaults(func=cmd_smoke)
 
@@ -420,7 +427,6 @@ def build_parser():
                    help="任务名称（用于 run 目录命名，如 260612_project_create）")
     p.add_argument("--project-root", "-p", help="项目根目录（默认当前目录）")
     p.add_argument("--run-root", help="运行产物根目录（默认 {project_root}/doc/runs）")
-    p.add_argument("--roles", help="roles YAML 路径（默认自动发现 workflow 同目录下的 roles.yaml）")
     p.add_argument("--agents", help="agents YAML 路径（默认自动发现 workflow 同目录下的 agents.yaml）")
     p.add_argument("--skills-dir", help="skills 目录（默认自动发现 workflow 同目录下的 skills/）")
     p.add_argument("--mock-script", help="mock decision 脚本 YAML（默认自动发现 workflow 同目录下的 mock_script.yaml，仅 mock 模式生效）")
@@ -460,8 +466,9 @@ def build_parser():
     # retry
     p = sub.add_parser("retry", help="重试（默认 dry-run）")
     p.add_argument("--run-id", "-r", required=True, help="Run ID")
-    p.add_argument("--from-state", help="从指定 state 重试")
+    p.add_argument("--from-state", help="从指定 state 重试（默认自动检测中断点）")
     p.add_argument("--dispatch", action="store_true", help="真实执行（非 dry-run）")
+    p.add_argument("--workflow", "-w", help="workflow YAML 路径（dispatch 模式下用于自动发现 agents/skills）")
     p.add_argument("--project-root", "-p", help="项目根目录（用于 run_index.json 发现）")
     p.add_argument("--run-root", help="run_root 路径（直接指定）")
     p.set_defaults(func=cmd_retry)

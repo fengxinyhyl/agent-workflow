@@ -7,14 +7,14 @@ import tempfile
 
 import pytest
 
-from agent_workflow.config.loader import load_workflow, load_roles_config
+from agent_workflow.config.loader import load_workflow
 from agent_workflow.state_machine import StateMachine
 from agent_workflow.state_machine.runner import Runner
 
 
 EXAMPLES_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "examples",
+    "workflows",
     "standard-dev",
 )
 
@@ -24,12 +24,7 @@ def _has_examples() -> bool:
 
 
 def _build_workflow():
-    wf = load_workflow(os.path.join(EXAMPLES_DIR, "workflow.yaml"))
-    roles = load_roles_config(os.path.join(EXAMPLES_DIR, "roles.yaml"))
-    for name, role in roles.items():
-        if name not in wf.roles:
-            wf.roles[name] = role
-    return wf
+    return load_workflow(os.path.join(EXAMPLES_DIR, "workflow.yaml"))
 
 
 @pytest.mark.skipif(not _has_examples(), reason="standard-dev 示例目录不存在")

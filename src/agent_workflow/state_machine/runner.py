@@ -28,7 +28,7 @@ import json
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
-from ..config.models import WorkflowConfig, TaskModel, AgentModel, RoleModel
+from ..config.models import WorkflowConfig, TaskModel, AgentModel
 from ..context.run_context import RunContext
 from ..context.agent_input import AgentInput, TaskConfig as AgentTaskConfig
 from .machine import StateMachine, TransitionResult
@@ -409,12 +409,43 @@ class Runner:
                         # P0c: Promote artifacts（检查返回值）
                         self._promote_artifacts(task_result)
 
-                # 5. 发射 TaskFinished
+                # 5. 发射 TaskFinished（含耗时、token、agent 信息）
                 decision = task_result.get_decision() if task_result else "fail"
+                status = task_result.status if task_result else "failed"
+                task_agent = task_result.agent if task_result else ""
+                if not task_agent:
+                    task_agent = self.context.workflow_variables.get("_current_agent", "")
+
+                # 计算耗时与 token（使用 to_dict 避免 ExecutionMetadata 对象访问问题）
+                duration_seconds = 0.0
+                input_tokens = 0
+                output_tokens = 0
+                if task_result:
+                    tr_dict = task_result.to_dict()
+                    exec_meta = tr_dict.get("execution", {})
+                    if isinstance(exec_meta, dict):
+                        started = exec_meta.get("started_at", "")
+                        finished = exec_meta.get("finished_at", "")
+                        if started and finished:
+                            try:
+                                s = datetime.fromisoformat(str(started))
+                                f = datetime.fromisoformat(str(finished))
+                                duration_seconds = (f - s).total_seconds()
+                            except Exception:
+                                pass
+                    tu = tr_dict.get("token_usage", {})
+                    if isinstance(tu, dict):
+                        input_tokens = tu.get("input_tokens", 0)
+                        output_tokens = tu.get("output_tokens", 0)
+
                 self._get_event_bus().emit("TaskFinished", {
                     "state": current_state,
                     "decision": decision,
-                    "status": task_result.status if task_result else "failed",
+                    "status": status,
+                    "agent": task_agent,
+                    "duration_seconds": duration_seconds,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
                     "timestamp": _now_iso(),
                 })
 
@@ -467,6 +498,7 @@ class Runner:
                     "final_state": current_state,
                     "last_decision": self.context.task_results.get(current_state, {}).get("decision", ""),
                     "last_status": self.context.task_results.get(current_state, {}).get("status", ""),
+                    "stage_summary": self._build_stage_summary(),
                     "timestamp": _now_iso(),
                 })
             else:
@@ -474,6 +506,7 @@ class Runner:
                     "run_id": self._run_id,
                     "final_state": current_state,
                     "total_states": len(self.context.state_history),
+                    "stage_summary": self._build_stage_summary(),
                     "timestamp": _now_iso(),
                 })
 
@@ -563,6 +596,58 @@ class Runner:
             # 写入失败不阻塞主流程（但记录为 issue）
             pass
 
+    def _build_stage_summary(self) -> list[dict[str, Any]]:
+        """构建阶段汇总：从 task_results 提取每个阶段的关键指标。"""
+        summary = []
+        # 按 state_history 顺序排列
+        seen = set()
+        for state_name in self.context.state_history:
+            if state_name in seen:
+                continue
+            seen.add(state_name)
+            tr = self.context.task_results.get(state_name, {})
+            if not tr:
+                continue
+
+            # 提取 agent（优先 task_result.agent，其次 per-state 记录，最后 fallback）
+            agent = tr.get("agent", "") or ""
+            if not agent:
+                agent = self.context.workflow_variables.get(f"_agent_{state_name}", "")
+            if not agent:
+                agent = self.context.workflow_variables.get("_current_agent", "")
+
+            # 计算耗时
+            duration_seconds = 0
+            exec_meta = tr.get("execution", {})
+            if isinstance(exec_meta, dict):
+                started = exec_meta.get("started_at", "")
+                finished = exec_meta.get("finished_at", "")
+                if started and finished:
+                    try:
+                        s = datetime.fromisoformat(str(started))
+                        f = datetime.fromisoformat(str(finished))
+                        duration_seconds = (f - s).total_seconds()
+                    except Exception:
+                        pass
+
+            # token
+            tu = tr.get("token_usage", {})
+            input_tokens = tu.get("input_tokens", 0) if isinstance(tu, dict) else 0
+            output_tokens = tu.get("output_tokens", 0) if isinstance(tu, dict) else 0
+            cache_tokens = tu.get("cache_read_input_tokens", 0) if isinstance(tu, dict) else 0
+
+            summary.append({
+                "state": state_name,
+                "agent": agent,
+                "status": tr.get("status", ""),
+                "decision": tr.get("decision", ""),
+                "duration_seconds": duration_seconds,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cache_read_tokens": cache_tokens,
+            })
+        return summary
+
     def _validate_task_result(self, task_result, state_name: str) -> tuple[bool, list[str]]:
         """P0c: 校验 TaskResult 和 Artifact，返回 (has_blocking_errors, warnings)。
 
@@ -623,8 +708,15 @@ class Runner:
                         artifact.staging_path,
                         os.path.join(self.context.run_root, "staging"),
                     )
+                    # artifact_path 可能是相对路径（如 "artifacts/plan_doc.md"），
+                    # 需先相对于 run_root 解析，否则 abspath 会以 CWD 为基准导致逃逸误判
+                    artifact_full = artifact.artifact_path
+                    if not os.path.isabs(artifact_full):
+                        artifact_full = os.path.join(
+                            self.context.run_root, artifact.artifact_path
+                        )
                     artifact_ok = _check_path_containment(
-                        artifact.artifact_path,
+                        artifact_full,
                         os.path.join(self.context.run_root, "artifacts"),
                     )
                     if not staging_ok:
@@ -666,6 +758,8 @@ class Runner:
         # P0b: 维护 _current_agent
         if self.context:
             self.context.workflow_variables["_current_agent"] = agent_name
+            # 记录每个 state 使用的 agent，供汇总表使用
+            self.context.workflow_variables[f"_agent_{state_name}"] = agent_name
 
         # P0d: Skill adoption for this state
         adopted_skills: dict = {}
@@ -762,7 +856,7 @@ class Runner:
         task_config = AgentTaskConfig(
             name=task_model.name if task_model else state_name,
             instruction=task_model.instruction if task_model else "",
-            role=task_model.role if task_model else agent_name,
+            agent=task_model.agent if task_model else agent_name,
             inputs=task_model.inputs if task_model else [],
             output=task_model.output if task_model else "",
         )
@@ -858,15 +952,10 @@ class Runner:
             return None
 
     def _resolve_agent(self, task_model: TaskModel | None) -> str:
-        """解析 Role → Agent 名称。"""
+        """解析 Task → Agent 名称。"""
         if task_model is None:
             return "mock"
-
-        role = self.workflow.get_role(task_model.role)
-        if role:
-            return role.agent
-
-        return "mock"
+        return task_model.agent or "mock"
 
     def _get_current_task_model(self) -> TaskModel | None:
         """获取当前 state 对应的 TaskModel。"""
@@ -945,14 +1034,14 @@ class Runner:
         """P0d: 校验并 promote skill adoption artifact。
 
         将 staging/<state>/skill_adoption.md promote 到
-        artifacts/skill_adoption/<state>.md，登记到 RunContext，发 ArtifactPromoted。
+        artifacts/skill_adoption_<state>.md（扁平结构，无子目录），登记到 RunContext，发 ArtifactPromoted。
         """
         if not staging_path or not os.path.exists(staging_path):
             return
 
         artifact_name = f"skill_adoption:{state_name}"
         artifact_path = os.path.join(
-            self.context.run_root, "artifacts", "skill_adoption", f"{state_name}.md"
+            self.context.run_root, "artifacts", f"skill_adoption_{state_name}.md"
         )
 
         # 校验 staging 文件

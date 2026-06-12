@@ -37,7 +37,7 @@ class TestMockAgent:
                 task=TaskConfig(
                     name="codex_plan",
                     instruction="编写实现计划",
-                    role="planner",
+                    agent="planner",
                     output="plan_doc",
                 ),
                 context=ctx,
@@ -73,7 +73,7 @@ class TestMockAgent:
                 task=TaskConfig(
                     name="claude_review_plan",
                     instruction="审查计划",
-                    role="reviewer",
+                    agent="reviewer",
                     output="review_doc",
                 ),
                 context=ctx,

@@ -9,7 +9,7 @@ import json
 import tempfile
 import pytest
 
-from agent_workflow.config.loader import load_workflow, load_roles_config, load_agents_config
+from agent_workflow.config.loader import load_workflow, load_agents_config
 from agent_workflow.state_machine.runner import Runner
 from agent_workflow.agents.mock import MockAgent
 
@@ -17,7 +17,7 @@ from agent_workflow.agents.mock import MockAgent
 # 测试用的 workflow 路径
 EXAMPLES_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "examples", "software-dev",
+    "workflows", "software-dev",
 )
 
 
@@ -53,9 +53,9 @@ class TestSoftwareDevMockFlow:
         wf_path = os.path.join(EXAMPLES_DIR, "workflow.yaml")
         wf = load_workflow(wf_path)
         assert wf.name == "software-dev"
-        assert wf.initial_state == "codex_plan"
-        assert "codex_plan" in wf.states
-        assert "claude_review_plan" in wf.states
+        assert wf.initial_state == "plan"
+        assert "plan" in wf.states
+        assert "review_plan" in wf.states
         assert "done" in wf.terminal_states
 
     @pytest.mark.skipif(not _has_examples(), reason="示例目录不存在")
@@ -63,17 +63,9 @@ class TestSoftwareDevMockFlow:
         """测试加载 Agent 配置。"""
         agents_path = os.path.join(EXAMPLES_DIR, "agents.yaml")
         agents = load_agents_config(agents_path)
-        assert "codex_plan" in agents
-        assert "claude_review" in agents
-        assert agents["codex_plan"].provider == "codex"
-
-    @pytest.mark.skipif(not _has_examples(), reason="示例目录不存在")
-    def test_load_roles(self):
-        """测试加载 Role 配置。"""
-        roles_path = os.path.join(EXAMPLES_DIR, "roles.yaml")
-        roles = load_roles_config(roles_path)
-        assert "planner" in roles
-        assert roles["planner"].agent == "codex_plan"
+        assert "cc-opus" in agents
+        assert "cc-deepseek" in agents
+        assert agents["cc-opus"].provider == "claude"
 
     @pytest.mark.skipif(not _has_examples(), reason="示例目录不存在")
     def test_workflow_validate(self):
@@ -81,9 +73,7 @@ class TestSoftwareDevMockFlow:
         wf_path = os.path.join(EXAMPLES_DIR, "workflow.yaml")
         wf = load_workflow(wf_path)
         issues = wf.validate()
-        # 只检查硬错误（role 相关的问题在单独加载 agents 后解决）
-        hard_errors = [i for i in issues if "未定义" in i and "role" not in i]
-        assert len(hard_errors) == 0, f"Workflow 校验错误: {hard_errors}"
+        assert len(issues) == 0, f"Workflow 校验错误: {issues}"
 
     @pytest.mark.skipif(not _has_examples(), reason="示例目录不存在")
     def test_state_machine_validate(self):
@@ -94,9 +84,7 @@ class TestSoftwareDevMockFlow:
         wf = load_workflow(wf_path)
         sm = StateMachine(wf)
         issues = sm.validate()
-        # 过滤掉 role 相关的问题（需要单独加载 agents 验证）
-        filtered = [i for i in issues if "role" not in i]
-        assert len(filtered) == 0, f"状态机校验错误: {filtered}"
+        assert len(issues) == 0, f"状态机校验错误: {issues}"
 
     @pytest.mark.skipif(not _has_examples(), reason="示例目录不存在")
     def test_mock_full_flow(self):
@@ -114,7 +102,7 @@ class TestSoftwareDevMockFlow:
 
             # 启动
             run_id = runner.start()
-            assert run_id.startswith("run_")
+            assert len(run_id) > 0
 
             # 注入 Mock Agent（覆盖默认的 agent 解析）
             # 所有 Agent 请求都返回 MockAgent
@@ -135,7 +123,7 @@ class TestSoftwareDevMockFlow:
                 pass
 
             # 验证产出
-            run_root = os.path.join(tmpdir, ".agent-workflow", "runs", run_id)
+            run_root = os.path.join(tmpdir, "doc", "runs", run_id)
             assert os.path.exists(run_root)
 
             # workflow_state.json 存在
@@ -155,24 +143,24 @@ class TestSoftwareDevMockFlow:
         wf = load_workflow(wf_path)
         sm = StateMachine(wf)
 
-        # codex_plan done → claude_review_plan
-        result = sm.resolve_transition("codex_plan", "done")
-        assert result.next_state == "claude_review_plan"
+        # plan done → review_plan
+        result = sm.resolve_transition("plan", "done")
+        assert result.next_state == "review_plan"
 
-        # claude_review_plan approve → codex_execute
-        result = sm.resolve_transition("claude_review_plan", "approve")
-        assert result.next_state == "codex_execute"
+        # review_plan approve → execute
+        result = sm.resolve_transition("review_plan", "approve")
+        assert result.next_state == "execute"
 
-        # claude_review_plan revise → codex_revise_plan
-        result = sm.resolve_transition("claude_review_plan", "revise")
-        assert result.next_state == "codex_revise_plan"
+        # review_plan revise → revise_plan
+        result = sm.resolve_transition("review_plan", "revise")
+        assert result.next_state == "revise_plan"
 
-        # claude_review_plan reject → failed
-        result = sm.resolve_transition("claude_review_plan", "reject")
+        # review_plan reject → failed
+        result = sm.resolve_transition("review_plan", "reject")
         assert result.next_state == "failed"
 
         # 未知 decision 走 default
-        result = sm.resolve_transition("claude_review_plan", "unknown")
+        result = sm.resolve_transition("review_plan", "unknown")
         assert result.next_state == "failed"
 
     @pytest.mark.skipif(not _has_examples(), reason="示例目录不存在")
@@ -199,7 +187,7 @@ class TestSoftwareDevMockFlow:
                 pass
 
             # 验证 events.jsonl 存在
-            run_root = os.path.join(tmpdir, ".agent-workflow", "runs", run_id)
+            run_root = os.path.join(tmpdir, "doc", "runs", run_id)
             events_path = os.path.join(run_root, "logs", "events.jsonl")
             assert os.path.exists(events_path), f"events.jsonl 应存在: {events_path}"
 
@@ -239,7 +227,7 @@ class TestSoftwareDevMockFlow:
             except Exception:
                 pass
 
-            run_root = os.path.join(tmpdir, ".agent-workflow", "runs", run_id)
+            run_root = os.path.join(tmpdir, "doc", "runs", run_id)
             staging_root = os.path.join(run_root, "staging")
 
             # 至少有一个 state 的 staging 目录包含 task_result.json
@@ -309,7 +297,7 @@ class TestSoftwareDevMockFlow:
             except Exception:
                 pass
 
-            run_root = os.path.join(tmpdir, ".agent-workflow", "runs", run_id)
+            run_root = os.path.join(tmpdir, "doc", "runs", run_id)
 
             # 从 workflow_state.json 检查 artifacts
             state_path = os.path.join(run_root, "workflow_state.json")
@@ -344,8 +332,8 @@ class TestSoftwareDevMockFlow:
 
         # 模拟 review_plan 被访问 6 次
         for i in range(6):
-            ctx.record_state_visit("claude_review_plan")
+            ctx.record_state_visit("review_plan")
 
-        result = guard.check("claude_review_plan", ctx)
+        result = guard.check("review_plan", ctx)
         assert not result.passed
         assert result.guard_type == "max_visits"

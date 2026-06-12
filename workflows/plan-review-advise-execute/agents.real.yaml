@@ -1,27 +1,26 @@
 # Agent 配置
-# provider 即 CLI adapter，不抽象 runtime
-#
-# 注意：以下 command 占位符（{CODEX_COMMAND} / {CLAUDE_COMMAND}）需在真跑前
-# 替换为真实 CLI 可执行文件，并校准命令参数（见 README）。
-# mock 跑通时无需配置真实 CLI——Runner 会自动 fallback 到 MockAgent。
+# command 中的 {VAR} 占位符从 .env 文件或系统环境变量读取。
 
 agents:
-  codex_plan:
-    provider: codex
-    command: "{CODEX_COMMAND}"
-    cwd: "{project_root}"
-    sandbox: workspace-write
-    timeout_seconds: 3600
-    description: "Codex — 实现计划编写"
-
-  claude_review:
+  cc-opus:
     provider: claude
-    command: "{CLAUDE_COMMAND}"
+    command: "{OPUS_COMMAND}"
     cwd: "{project_root}"
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write,Edit,Bash"
     timeout_seconds: 3600
-    description: "Claude — 审查与建议"
+    description: "Claude Opus — 计划/建议"
 
-  codex_execute:
+  cc-deepseek:
+    provider: claude
+    command: "{DEEPSEEK_COMMAND}"
+    cwd: "{project_root}"
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write,Edit,Bash"
+    timeout_seconds: 3600
+    description: "Claude DeepSeek — 审查"
+
+  codex:
     provider: codex
     command: "{CODEX_COMMAND}"
     cwd: "{project_root}"

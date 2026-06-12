@@ -1,12 +1,14 @@
 """explain — 状态解释。
 
-输出当前等待项、allowed decisions、next states、Guard 状态。
+输出当前等待项、allowed decisions、next states、Guard 状态、Agent 信息。
 
 输出格式（v4 计划 §10.6）：
-  Current State:       claude_review_plan
+  Current State:       review_plan
+  Task:                review_plan
+  Agent:               cc-deepseek
   Waiting For:         TaskResult
   Allowed Decisions:   approve, revise, reject
-  Transitions:         approve → codex_execute, revise → codex_revise_plan, reject → failed
+  Transitions:         approve → execute, revise → revise_plan, reject → failed
   Default:             failed
   Guards:
     max_visits:        5
@@ -88,11 +90,22 @@ def get_explanation(run_id: str, run_root: str | None = None) -> str:
     # 检查心跳
     stale, stale_reason = check_stale(run_root)
 
+    # 获取当前 Agent（从 task 配置或 workflow_variables 回退）
+    current_agent = task_config.get("agent", "")
+    if not current_agent:
+        current_agent = wf_vars.get("_current_agent", "")
+    if not current_agent:
+        task_results = state_data.get("task_results", {})
+        tr = task_results.get(current_state, {})
+        current_agent = tr.get("agent", "")
+
     # 构建输出
     lines = [
         f"Current State:       {current_state}",
         f"Task:                {task_name or '(无 — 终止状态)'}",
     ]
+    if current_agent and not is_terminal:
+        lines.append(f"Agent:               {current_agent}")
 
     if is_terminal:
         lines.append(f"Waiting For:         terminal (Workflow ended)")
