@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import signal
 import subprocess
 import threading
@@ -105,6 +106,8 @@ class BaseAgent:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 env=env,
             )
             if stdin_text is not None and process.stdin is not None:
@@ -362,6 +365,10 @@ class BaseAgent:
 
         纯 static helper，由 adapter（ClaudeCLI/CodexCLI）在 _build_command 中按需调用。
         不自动注入 _run_with_cancel_poll。
+
+        判断扩展名时优先解析实际文件：无扩展名的命令（如 codex/claude）经
+        PATHEXT 解析后真实文件可能是 .cmd/.bat，此类同样需要 cmd /c 包裹，
+        否则 Popen 直接执行会失败。
         """
         if os.name != "nt":
             return cmd
@@ -371,9 +378,13 @@ class BaseAgent:
         # 已经是 cmd /c 包裹的不重复包裹
         if exe.lower() in ("cmd", "cmd.exe"):
             return cmd
-        # 仅 .cmd / .bat 扩展名需要 shell shim
-        # 不包裹无扩展名命令（python/git/codex/claude 等可直接执行）
+        # 优先用传入字符串自身的扩展名；无扩展名时用 shutil.which 解析真实路径
         _, ext = os.path.splitext(exe)
+        if not ext:
+            resolved = shutil.which(exe)
+            if resolved:
+                _, ext = os.path.splitext(resolved)
+        # .cmd / .bat 需要 shell shim
         if ext.lower() in (".cmd", ".bat"):
             return ["cmd", "/c"] + cmd
         return cmd

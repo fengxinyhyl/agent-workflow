@@ -1,0 +1,2 @@
+- [agent-workflow Windows 修复](agent-workflow-windows-fixes.md) — 编码/命令包裹/权限三类根因，引擎在 G:\agent-workflow
+- [Claude permission-mode 语义](claude-permission-mode-semantics.md) — acceptEdits/dontAsk/auto + allowedTools 实测行为

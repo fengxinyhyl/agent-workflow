@@ -129,6 +129,8 @@ class AgentModel:
     command: str = ""  # 可包含环境变量占位符如 {CODEX_COMMAND}
     cwd: str = "{project_root}"
     sandbox: str = ""  # workspace-write / workspace-read / none
+    permission_mode: str = ""  # claude: default/acceptEdits/dontAsk/plan/auto
+    allowed_tools: str = ""  # claude: 逗号分隔工具白名单，如 Read,Grep,Glob,Write,Edit,Bash
     timeout_seconds: int = 3600
     description: str = ""
 
@@ -139,6 +141,8 @@ class AgentModel:
             "command": self.command,
             "cwd": self.cwd,
             "sandbox": self.sandbox,
+            "permission_mode": self.permission_mode,
+            "allowed_tools": self.allowed_tools,
             "timeout_seconds": self.timeout_seconds,
             "description": self.description,
         }

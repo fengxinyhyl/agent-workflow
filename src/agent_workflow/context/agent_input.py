@@ -93,10 +93,36 @@ class AgentInput:
         # 5. TaskResult Schema
         if self.expected_task_result_schema:
             parts.append("## 输出格式要求\n")
-            parts.append("你必须输出一个 **TaskResult** JSON 对象，格式如下：\n")
-            parts.append("```json")
-            parts.append(self._format_schema(self.expected_task_result_schema))
+            parts.append("**重要：你必须在最后一条消息的末尾输出一个 ```json 代码块，内容为 TaskResult JSON 对象。**\n")
+            parts.append("TaskResult 的必需字段（其他字段见下面 schema）：\n")
+            parts.append("- `schema_version`: 固定为 1\n")
+            parts.append("- `task_id`: 当前 task 名称\n")
+            parts.append("- `state`: 当前 state 名称\n")
+            parts.append("- `status`: 执行状态（success/failed/blocked/timeout）\n")
+            parts.append("- `decision`: 语义决策（见下方允许的决策列表）\n")
+            parts.append("- `summary`: 人类可读的执行摘要\n")
+            parts.append("- `artifacts`: 产出物列表（每项包含 name/staging_path/type），可以为空数组\n")
+            parts.append("- `execution`: 执行元数据（started_at/finished_at/exit_code 等，引擎会覆盖）\n")
+            parts.append("\n示例输出（你的最后一条消息应以此格式结尾）：\n")
+            parts.append("```json\n")
+            parts.append("{\n")
+            parts.append('  "schema_version": 1,\n')
+            parts.append(f'  "task_id": "{self.task.name if self.task else "task"}",\n')
+            parts.append(f'  "state": "{self.state_name or "state"}",\n')
+            parts.append('  "status": "success",\n')
+            parts.append('  "decision": "done",\n')
+            parts.append('  "summary": "任务完成的简要描述",\n')
+            parts.append('  "artifacts": [],\n')
+            parts.append('  "execution": {"started_at": "", "finished_at": "", "exit_code": 0}\n')
+            parts.append("}\n")
             parts.append("```\n")
+            parts.append("\n完整 schema 参考（所有字段的详细说明）：\n")
+            parts.append("<details>\n")
+            parts.append("<summary>点击展开 JSON Schema</summary>\n\n")
+            parts.append("```json\n")
+            parts.append(self._format_schema(self.expected_task_result_schema))
+            parts.append("\n```\n")
+            parts.append("</details>\n")
 
         # 6. Staging 路径
         if self.staging_paths:
@@ -104,12 +130,24 @@ class AgentInput:
             for name, path in self.staging_paths.items():
                 parts.append(f"- {name}: {path}")
             parts.append("\n⚠️ 所有输出必须写入 staging 路径，禁止直接写 artifacts。\n")
+            parts.append(
+                "⚠️ **产物登记契约（务必遵守，否则任务会校验失败）**：\n"
+                "1. 你在 TaskResult 的 `artifacts` 列表里声明的每一个产物，"
+                "都必须先用 Write 工具把对应文件真实写入它的 `staging_path`。\n"
+                "2. 先写文件，再登记——不要声明一个尚未落盘的产物。\n"
+                "3. 没有实际产出文件的产物，就不要写进 `artifacts` 列表（留空数组即可）。\n"
+                "4. 上面列出的输出路径是引擎期望的产物，请按需逐个写入并登记。\n"
+            )
 
         # 7. 技能策略
         if self.skill_policy:
             allowed = self.skill_policy.get("allowed_decisions", [])
             if allowed:
-                parts.append(f"允许的决策: {', '.join(allowed)}\n")
+                parts.append(
+                    f"\n⚠️ **本任务的 `decision` 字段必须从以下值中选择一个**："
+                    f"{', '.join(allowed)}。"
+                    f"不要使用列表之外的值（例如不要用 done 代替 approve）。\n"
+                )
 
         return "\n".join(parts)
 

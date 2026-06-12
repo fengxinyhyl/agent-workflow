@@ -108,13 +108,21 @@ class AgentRegistry:
         if agent_class is None:
             return None
 
-        return agent_class({
+        cfg = {
             "name": name,
             "provider": config.provider,
             "command": config.command,
             "cwd": config.cwd,
             "timeout_seconds": config.timeout_seconds,
-        })
+        }
+        # 仅在显式配置时传递，留空则由 adapter 使用自身默认值
+        if getattr(config, "permission_mode", ""):
+            cfg["permission_mode"] = config.permission_mode
+        if getattr(config, "allowed_tools", ""):
+            cfg["allowed_tools"] = config.allowed_tools
+        if getattr(config, "sandbox", ""):
+            cfg["sandbox"] = config.sandbox
+        return agent_class(cfg)
 
     def list_agents(self) -> list[str]:
         """列出所有已注册的 Agent 名称。"""

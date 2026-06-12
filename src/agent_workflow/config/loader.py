@@ -147,6 +147,8 @@ def load_agent(data: dict[str, Any]) -> AgentModel:
         command=data.get("command", ""),
         cwd=data.get("cwd", "{project_root}"),
         sandbox=data.get("sandbox", ""),
+        permission_mode=data.get("permission_mode", ""),
+        allowed_tools=data.get("allowed_tools", ""),
         timeout_seconds=data.get("timeout_seconds", 3600),
         description=data.get("description", ""),
     )

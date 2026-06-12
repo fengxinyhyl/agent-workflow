@@ -23,6 +23,7 @@ class ClaudeCLI(BaseAgent):
         self.cwd = config.get("cwd", "{project_root}") if config else "{project_root}"
         self.timeout = config.get("timeout_seconds", 3600) if config else 3600
         self.permission_mode = config.get("permission_mode", "default") if config else "default"
+        self.allowed_tools = config.get("allowed_tools") if config else None
         self.model = config.get("model") if config else None
         self.effort = config.get("effort") if config else None
         # 每次 execute 生成新的 session_id
@@ -193,6 +194,9 @@ class ClaudeCLI(BaseAgent):
             cmd.extend(["--model", model])
         if effort:
             cmd.extend(["--effort", effort])
+        # 工具白名单：显式授权 worker 可用工具（移植自 legacy 已验证实现）
+        if self.allowed_tools:
+            cmd.extend(["--allowedTools", self.allowed_tools])
 
         # C5: Windows cmd /c 包裹
         cmd = self._wrap_command_for_os(cmd)
