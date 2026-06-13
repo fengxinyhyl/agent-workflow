@@ -38,6 +38,54 @@ def _format_tokens(n: int) -> str:
     return str(n)
 
 
+# ── Box-drawing 字符集 ──
+_BOX = {
+    "h": "─", "v": "│",
+    "tl": "┌", "tr": "┐", "bl": "└", "br": "┘",
+    "tm": "┬", "bm": "┴", "ml": "├", "mr": "┤", "mm": "┼",
+}
+
+
+def _box_top(widths: list[int]) -> str:
+    """┌────┬────┬────┐"""
+    parts = [_BOX["tl"]]
+    for i, w in enumerate(widths):
+        parts.append(_BOX["h"] * (w + 2))
+        parts.append(_BOX["tm"] if i < len(widths) - 1 else _BOX["tr"])
+    return "".join(parts)
+
+
+def _box_mid(widths: list[int]) -> str:
+    """├────┼────┼────┤"""
+    parts = [_BOX["ml"]]
+    for i, w in enumerate(widths):
+        parts.append(_BOX["h"] * (w + 2))
+        parts.append(_BOX["mm"] if i < len(widths) - 1 else _BOX["mr"])
+    return "".join(parts)
+
+
+def _box_bottom(widths: list[int]) -> str:
+    """└────┴────┴────┘"""
+    parts = [_BOX["bl"]]
+    for i, w in enumerate(widths):
+        parts.append(_BOX["h"] * (w + 2))
+        parts.append(_BOX["bm"] if i < len(widths) - 1 else _BOX["br"])
+    return "".join(parts)
+
+
+def _box_row(cells: list[str], widths: list[int], aligns: list[str] | None = None) -> str:
+    """│ cell1 │ cell2 │ cell3 │"""
+    if aligns is None:
+        aligns = ["<"] * len(widths)
+    parts = [_BOX["v"]]
+    for cell, w, a in zip(cells, widths, aligns):
+        # 用 format 对齐；CJK 字符暂不做宽度补偿（当前内容全为 ASCII）
+        fmt = f"{{:{a}{w}}}"
+        parts.append(f" {fmt.format(cell)} ")
+        parts.append(_BOX["v"])
+    return "".join(parts)
+
+
 class ConsoleSink:
     """控制台实时输出 sink。
 
@@ -106,12 +154,21 @@ class ConsoleSink:
 
             stage_summary = payload.get("stage_summary", [])
             if stage_summary:
-                # 表头
-                self._safe_write(
-                    f"  {'Stage':<12} {'Agent':<16} {'Decision':<10} "
-                    f"{'Duration':>9} {'Tokens(in+out)':>16}\n"
-                )
-                self._safe_write(f"  {'-'*68}\n")
+                # 列定义：名称、宽度、对齐方式
+                cols = [
+                    ("Stage", 12, "<"),
+                    ("Agent", 18, "<"),
+                    ("Decision", 10, "<"),
+                    ("Duration", 10, ">"),
+                    ("Tokens(in+out)", 18, ">"),
+                ]
+                headers = [c[0] for c in cols]
+                widths = [c[1] for c in cols]
+                aligns = [c[2] for c in cols]
+
+                self._safe_write(f"  {_box_top(widths)}\n")
+                self._safe_write(f"  {_box_row(headers, widths, aligns)}\n")
+                self._safe_write(f"  {_box_mid(widths)}\n")
 
                 total_in = 0
                 total_out = 0
@@ -130,19 +187,21 @@ class ConsoleSink:
 
                     dur_str = _format_duration(dur)
                     token_str = f"{_format_tokens(it)}+{_format_tokens(ot)}"
-                    self._safe_write(
-                        f"  {state_name:<12} {agent:<16} {decision:<10} "
-                        f"{dur_str:>9} {token_str:>16}\n"
-                    )
+                    cells = [state_name, agent, decision, dur_str, token_str]
+                    self._safe_write(f"  {_box_row(cells, widths, aligns)}\n")
 
-                # 汇总行
-                self._safe_write(f"  {'-'*68}\n")
+                # 汇总行（合并前 3 列）
+                self._safe_write(f"  {_box_mid(widths)}\n")
                 total_token_str = f"{_format_tokens(total_in)}+{_format_tokens(total_out)}"
+                merged_width = widths[0] + widths[1] + widths[2] + 6  # 6 = 3 个 │ 两边的空格
+                footer_left = f"TOTAL"
+                footer_dur = _format_duration(total_dur)
                 self._safe_write(
-                    f"  {'TOTAL':<12} {'':<16} {'':<10} "
-                    f"{_format_duration(total_dur):>9} {total_token_str:>16}\n"
+                    f"  {_BOX['v']} {footer_left:<{merged_width}} "
+                    f"{_BOX['v']} {footer_dur:>{widths[3]}} "
+                    f"{_BOX['v']} {total_token_str:>{widths[4]}} {_BOX['v']}\n"
                 )
-                self._safe_write(f"{'='*72}\n")
+                self._safe_write(f"  {_box_bottom(widths)}\n")
             return
 
         # ── 通用格式处理 ──

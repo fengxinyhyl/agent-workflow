@@ -689,6 +689,26 @@ class Runner:
                 if staging_path and not os.path.isabs(staging_path):
                     staging_path = os.path.join(self.context.run_root, staging_path)
 
+                # 自动修正：如果 staging_path 文件不存在，尝试预期路径 staging/{state_name}/{filename}
+                if staging_path and not os.path.exists(staging_path):
+                    filename = os.path.basename(staging_path)
+                    expected_path = os.path.join(
+                        self.context.run_root, "staging", state_name, filename
+                    )
+                    if os.path.exists(expected_path):
+                        all_warnings.append(
+                            f"staging_path 自动修正: {artifact.staging_path} -> {expected_path}"
+                        )
+                        # 更新 ArtifactRef
+                        artifact.staging_path = expected_path
+                        staging_path = expected_path
+                        # 同步更新原始 TaskResult.artifacts 中的 dict（确保 promotion 可见）
+                        raw_artifacts = task_result.artifacts
+                        for j, raw_a in enumerate(raw_artifacts):
+                            if isinstance(raw_a, dict) and raw_a.get("name") == artifact.name:
+                                raw_a["staging_path"] = expected_path
+                                break
+
                 ar = av.validate(staging_path)
                 if ar.errors:
                     # artifact 文件缺失视为 blocking
