@@ -1,0 +1,30 @@
+# Agent 配置
+# 真实运行时通过 --agents 显式指定本文件。
+# command 中的 {VAR} 占位符从 .env 文件或系统环境变量读取。
+
+agents:
+  cc-opus:
+    provider: claude
+    command: "{OPUS_COMMAND}"
+    cwd: "{project_root}"
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write,Edit,Bash"
+    timeout_seconds: 3600
+    description: "Claude Opus — 列计划/修订计划/总结"
+
+  cc-deepseek:
+    provider: claude
+    command: "{DEEPSEEK_COMMAND}"
+    cwd: "{project_root}"
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write,Edit,Bash"
+    timeout_seconds: 3600
+    description: "Claude DeepSeek — 审核计划/审核任务"
+
+  codex:
+    provider: codex
+    command: "{CODEX_COMMAND}"
+    cwd: "{project_root}"
+    sandbox: workspace-write
+    timeout_seconds: 7200
+    description: "Codex — 执行任务/修订任务/测试任务"

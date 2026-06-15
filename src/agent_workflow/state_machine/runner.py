@@ -1016,9 +1016,13 @@ class Runner:
         for artifact in artifacts:
             # 根据 version_strategy 决定最终 artifact_path
             if version_strategy == "increment":
-                attempt = self.context.get_attempt(self.context.current_state)
+                # 版本号基于该产物流已有版本链长度递增，而非 state 的 attempt。
+                # loop 展开后每轮是独立 state（如 plan_review_r1/_r2），attempt 恒为 1，
+                # 用 attempt 会让各轮都生成 -v1 而相互覆盖；用版本链长度可跨 state 累积。
+                existing = len(self.context.artifact_versions.get(artifact.name, []))
+                version = existing + 1
                 base, ext = os.path.splitext(artifact.artifact_path)
-                versioned_path = f"{base}-v{attempt}{ext}"
+                versioned_path = f"{base}-v{version}{ext}"
             else:
                 versioned_path = artifact.artifact_path
 

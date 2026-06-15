@@ -1,0 +1,24 @@
+skill:
+  name: workflow-summary
+  version: "1"
+  description: "最终总结节点规范"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+    forbidden_actions:
+      - "新增代码修改"
+      - "隐藏未运行测试或失败测试"
+  content: |
+    # Workflow Summary Node
+
+    总结节点只汇总事实，不再修改代码。
+
+    ## 必须包含
+
+    - 完成内容
+    - 关键决策
+    - 修改文件和产物
+    - 测试结果
+    - 残余风险
+    - 后续建议
