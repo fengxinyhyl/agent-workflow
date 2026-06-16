@@ -241,6 +241,7 @@ tasks:
       - approve
       - revise
       - reject
+      - done
 
   retrospective:
     instruction: |
@@ -330,6 +331,7 @@ states:
     task: validation
     on:
       approve: retrospective
+      done: retrospective
       revise: output_refinement
       reject: failed
     default: failed

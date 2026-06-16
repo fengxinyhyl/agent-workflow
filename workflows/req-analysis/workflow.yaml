@@ -1,0 +1,179 @@
+# req-analysis Workflow
+# 需求分析单向链路:
+#   understand_requirements -> review_breakdown -> give_advice -> done
+#
+# 这个 workflow 只负责理解需求、审查拆分、给出建议。
+# 不回流、不执行代码、不进入实现阶段。
+
+name: req-analysis
+version: "1"
+description: |
+  需求理解与子需求拆分工作流。按单向链路产出:
+  1. requirements_plan: 需求理解和 Step 1/2/3/4... 子需求拆分
+  2. breakdown_review: 对拆分结果的审查
+  3. breakdown_advice: 最终建议
+
+initial_state: understand_requirements
+
+guards:
+  max_visits: 3
+  max_duration_minutes: 120
+  max_retries: 2
+  on_guard_failed: failed
+
+terminal_states:
+  - done
+  - failed
+  - cancelled
+
+required_skills:
+  - agent-workflow-lifecycle
+
+tasks:
+  understand_requirements:
+    instruction: |
+      阅读 goal 和 project_context，产出一份需求理解与子需求拆分文档。
+
+      这份文档是 plan 阶段产物，但不是代码实现计划。它必须聚焦:
+      - 用户真实目标
+      - 范围边界
+      - 可独立交付的子需求
+      - 子需求之间的依赖和建议顺序
+
+      必须按以下结构输出:
+      1. 原始需求复述
+      2. 目标与非目标
+      3. 已知约束与假设
+      4. 待确认问题
+      5. 子需求拆分
+         - Step 1: ...
+         - Step 2: ...
+         - Step 3: ...
+         - Step 4: ...
+         如需求更多，继续 Step 5、Step 6...
+      6. 每个 Step 的验收标准
+      7. 依赖关系和推荐执行顺序
+      8. 风险与停止规则
+
+      判断标准:
+      - done: 需求理解清楚，Step 拆分完整且可审查。
+      - blocked: 缺少关键上下文，无法可靠拆分。
+      - fail: 需求本身不可执行或与安全边界冲突。
+    agent: cc-opus
+    input:
+      - goal
+      - project_context
+    output: requirements_plan
+    skills:
+      - req-analysis-plan
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  review_breakdown:
+    instruction: |
+      审查 requirements_plan。只审查需求理解和子需求拆分，不执行代码，不重写计划。
+
+      必须检查:
+      1. 原始需求是否被准确复述
+      2. 目标与非目标是否清楚
+      3. Step 1/2/3/4... 是否覆盖完整需求
+      4. 每个 Step 是否可独立验收
+      5. Step 顺序和依赖是否合理
+      6. 是否存在过度拆分、遗漏、范围蔓延或不可验证项
+
+      输出必须包含:
+      - Review verdict: approve / advise / reject
+      - Blocking issues
+      - Major risks
+      - Missing information
+      - Suggested changes
+      - Do-not-change constraints
+
+      注意: 本 workflow 是单向流程。即使 verdict 是 advise，也不回流到 plan；
+      下一节点会把 review 转成最终建议。
+    agent: cc-deepseek
+    input:
+      - requirements_plan
+      - project_context
+    output: breakdown_review
+    skills:
+      - req-analysis-review
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  give_advice:
+    instruction: |
+      基于 requirements_plan 和 breakdown_review，产出最终建议。
+
+      必须包含:
+      1. 总体判断
+      2. 建议保留的 Step
+      3. 建议合并、拆分或重排的 Step
+      4. 必须先确认的阻塞问题
+      5. 推荐下一步
+      6. 若进入后续工作流，应使用的输入摘要
+
+      这是 advice 阶段的最终产物。本节点完成后直接结束，不回流、不执行。
+
+      判断标准:
+      - done: 建议完整，可作为后续计划或执行工作流的输入。
+      - blocked: review 信息不足，无法形成可靠建议。
+      - fail: 需求拆分不可采纳，且无法给出可执行下一步。
+    agent: cc-opus
+    input:
+      - requirements_plan
+      - breakdown_review
+    output: breakdown_advice
+    skills:
+      - req-analysis-advice
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+states:
+  understand_requirements:
+    task: understand_requirements
+    on:
+      done: review_breakdown
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "理解需求并按 Step 拆分子需求"
+
+  review_breakdown:
+    task: review_breakdown
+    on:
+      done: give_advice
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "审查需求拆分质量"
+
+  give_advice:
+    task: give_advice
+    on:
+      done: done
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "给出最终建议并结束"
+
+  done:
+    task: ""
+    terminal: true
+    description: "工作流成功完成"
+
+  failed:
+    task: ""
+    terminal: true
+    description: "工作流失败终止"
+
+  cancelled:
+    task: ""
+    terminal: true
+    description: "工作流被取消"

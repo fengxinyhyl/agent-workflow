@@ -1,0 +1,32 @@
+skill:
+  name: req-analysis-advice
+  version: "1"
+  description: "需求拆分最终建议节点规范"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "在建议阶段修改代码"
+      - "把 advice 当成执行结果"
+      - "省略阻塞问题"
+  content: |
+    # Req Analysis Advice Node
+
+    本节点基于 requirements_plan 和 breakdown_review 输出最终建议。
+
+    ## 必须包含
+
+    - 总体判断
+    - 建议保留的 Step
+    - 建议合并、拆分或重排的 Step
+    - 必须先确认的阻塞问题
+    - 推荐下一步
+    - 若进入后续工作流，应使用的输入摘要
+
+    ## 判断标准
+
+    - `done`: 建议完整，可作为后续 plan 或执行工作流的输入。
+    - `blocked`: review 信息不足，无法形成可靠建议。
+    - `fail`: 需求拆分不可采纳，且无法给出可执行下一步。

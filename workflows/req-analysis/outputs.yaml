@@ -1,0 +1,18 @@
+outputs:
+  requirements_plan:
+    type: markdown
+    description: "需求理解与 Step 1/2/3/4... 子需求拆分文档"
+    produced_by:
+      - understand_requirements
+
+  breakdown_review:
+    type: markdown
+    description: "需求拆分审查意见"
+    produced_by:
+      - review_breakdown
+
+  breakdown_advice:
+    type: markdown
+    description: "基于审查意见形成的最终建议"
+    produced_by:
+      - give_advice
