@@ -4,7 +4,9 @@ skill:
   description: "开发计划审核节点规范"
   policy:
     allowed_decisions:
-      - done
+      - approve
+      - revise
+      - reject
       - fail
       - blocked
     forbidden_actions:
@@ -13,7 +15,7 @@ skill:
   content: |
     # Dev Review Node
 
-    审核节点只审查计划质量，不执行代码，也不直接决定是否进入编程。
+    审核节点只审查计划质量，不执行代码，不修改计划。
 
     ## 审核维度
 
@@ -27,3 +29,9 @@ skill:
 
     明确列出 blocking issues、major risks、missing evidence、
     suggested revisions 和 do-not-change constraints。
+
+    ## Decision
+
+    - `approve`: 计划可执行。
+    - `revise`: 计划存在可修订问题。
+    - `reject`: 计划或目标不可接受。

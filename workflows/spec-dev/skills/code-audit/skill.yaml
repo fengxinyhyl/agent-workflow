@@ -7,6 +7,8 @@ skill:
       - approve
       - revise
       - reject
+      - fail
+      - blocked
     forbidden_actions:
       - "在检查阶段直接修代码"
       - "只给总结不列具体风险"
@@ -29,3 +31,4 @@ skill:
     - `approve`: 可进入单元测试。
     - `revise`: 需要回到 implement 修复。
     - `reject`: 变更不可接受。
+    - `blocked`: 缺少必要输入，无法完成审查。

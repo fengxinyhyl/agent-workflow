@@ -8,7 +8,7 @@ agents:
     command: "{OPUS_COMMAND}"
     cwd: "{project_root}"
     permission_mode: default
-    allowed_tools: "Read,Grep,Glob,Write,Edit,Bash"
+    allowed_tools: "Read,Grep,Glob,Write"
     timeout_seconds: 3600
     description: "Claude Opus — 列计划/修订计划/总结"
 
@@ -17,7 +17,7 @@ agents:
     command: "{DEEPSEEK_COMMAND}"
     cwd: "{project_root}"
     permission_mode: default
-    allowed_tools: "Read,Grep,Glob,Write,Edit,Bash"
+    allowed_tools: "Read,Grep,Glob,Write"
     timeout_seconds: 3600
     description: "Claude DeepSeek — 审核计划/审核任务"
 

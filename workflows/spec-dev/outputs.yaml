@@ -7,7 +7,6 @@ outputs:
     description: "开发计划"
     produced_by:
       - planning
-      - plan_refinement
 
   plan_review_doc:
     type: markdown
@@ -17,7 +16,7 @@ outputs:
 
   plan_refinement_doc:
     type: markdown
-    description: "计划修订记录"
+    description: "计划修订记录，包含完整修订后计划"
     produced_by:
       - plan_refinement
 

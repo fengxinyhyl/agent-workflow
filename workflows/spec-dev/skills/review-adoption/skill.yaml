@@ -4,16 +4,16 @@ skill:
   description: "审核意见采纳节点规范"
   policy:
     allowed_decisions:
-      - approve
-      - revise
-      - reject
+      - done
+      - fail
+      - blocked
     forbidden_actions:
       - "在采纳阶段修改代码"
       - "无记录地忽略 blocking review item"
   content: |
     # Review Adoption Node
 
-    采纳节点负责把审核意见转化为明确裁决。
+    采纳节点负责把审核意见转化为可执行的修订记录和完整修订后计划。
 
     ## 必须记录
 
@@ -21,10 +21,10 @@ skill:
     - 已采纳的修改
     - 延后处理的理由
     - 不采纳的理由
-    - 下一步是否允许进入编程
+    - 完整的修订后计划
 
     ## Decision
 
-    - `approve`: 审核意见已处理，允许进入 implement。
-    - `revise`: 计划需要回到 plan 修订。
-    - `reject`: 目标或方案不可接受。
+    - `done`: 修订记录和完整修订后计划已产出。
+    - `blocked`: 缺少关键输入，无法可靠修订。
+    - `fail`: 审核意见不可处理或目标已不可执行。

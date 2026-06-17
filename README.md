@@ -743,7 +743,7 @@ _loops:
     on_break: validation
 ```
 
-先对计划进行 2 轮审核修订，执行后再对结果进行 2 轮审核修订，最后测试验证。参考 `workflows/spec-dev/`。
+先对计划进行 2 轮审核修订，执行后再对结果进行 2 轮审核修订，最后测试验证。参考 `workflows/plan-review-advise-loop-example/` 的 `_loop` 展开方式；需要双 `_loops` 时可按本模式扩展。
 
 #### 模式 5：带 Gate 的审批流
 
@@ -860,7 +860,7 @@ Agent 必须输出标准 JSON，核心字段：
 | Workflow | 状态数 | 链路 | 特点 |
 |----------|--------|------|------|
 | `standard-dev` | 10 | plan → review → adoption → implement → code_audit → unit_test → summary | 标准开发全链路，含双回流（计划审核+代码审核） |
-| `spec-dev` | 12 | planning → plan_review(×2) → plan_refinement(×2) → execution → output_review(×2) → output_refinement(×2) → validation → retrospective | 需求驱动，双 `_loops` 展开，最完整的 multiround 示例 |
+| `spec-dev` | 11 | planning → plan_review ⇄ plan_refinement → execution → output_review ⇄ output_refinement → validation → retrospective | 需求驱动，review/test 节点用 approve/revise/reject 条件回流 |
 | `plan-review-advise-loop` | 7 | plan → review(×2) → advise(×2) → execute → summary | `_loop` 展开两轮审核，含提前通过机制 |
 | `plan-review-advise-execute` | 6 | plan → review → advise → execute | 通用四阶段链路，最小可用模板 |
 | `software-dev` | 10 | plan → review_plan → revise_plan → execute → audit → revise_execute → summary | P0 示例，独立 revise state 模式 |
@@ -869,7 +869,7 @@ Agent 必须输出标准 JSON，核心字段：
 
 - **快速开始 / 学习编排**：从 `plan-review-advise-execute` 开始，最简四阶段
 - **理解 _loop**：读 `plan-review-advise-loop`，单循环展开
-- **理解 _loops 和 multiround**：读 `spec-dev`，双循环 + 回流 + 测试验证
+- **理解条件回流开发流**：读 `spec-dev`，review/test 节点用 approve/revise/reject 驱动修订
 - **实际项目使用**：用 `standard-dev`，覆盖完整 SDLC
 
 ---
@@ -898,7 +898,7 @@ src/agent_workflow/
   long_task/               # 长任务：WorkflowRun / WorkItem / DependencyGraph / EventLog / StateStore
 workflows/                 # Workflow 包（YAML 配置 + skills）
   standard-dev/            # 标准开发全链路
-  spec-dev/                # 需求驱动开发（双 _loops）
+  spec-dev/                # 需求驱动开发（条件回流）
   plan-review-advise-loop/ # 两轮审核循环
   plan-review-advise-execute/ # 通用四阶段
   software-dev/            # Plan → Review → Revise → Execute → Audit → Summary

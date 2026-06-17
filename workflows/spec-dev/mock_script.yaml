@@ -1,24 +1,19 @@
 # Mock decision 脚本。
-# 默认走完整主链，强制完成两轮 plan 与两轮 output 循环。
-# 同一 task 被多个 state 复用，按访问次数顺序返回 decision。
+# 默认走条件回流的快乐路径；回流分支由集成测试显式覆盖。
 
 decision_script:
   planning:
     - done
   plan_review:
-    - done   # plan_review_r1
-    - done   # plan_review_r2
+    - approve
   plan_refinement:
-    - done   # plan_refinement_r1
-    - done   # plan_refinement_r2
+    - done
   execution:
     - done
   output_review:
-    - done   # output_review_r1
-    - done   # output_review_r2
+    - approve
   output_refinement:
-    - done   # output_refinement_r1
-    - done   # output_refinement_r2
+    - done
   validation:
     - approve
   retrospective:

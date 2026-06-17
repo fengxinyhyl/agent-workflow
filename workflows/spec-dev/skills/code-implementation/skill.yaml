@@ -18,7 +18,7 @@ skill:
 
     ## 规则
 
-    - 改动范围必须贴合 plan_doc 和 adoption_doc。
+    - 改动范围必须贴合 plan_doc 和 plan_refinement_doc。
     - 发现计划不可执行时输出 `blocked`，不要擅自扩大范围。
     - 记录修改文件、运行命令、偏差、未完成事项。
     - 不覆盖用户未要求修改的工作。

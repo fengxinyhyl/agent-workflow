@@ -1,4 +1,4 @@
-"""requirement-breakdown workflow 集成测试。"""
+"""req-analysis workflow 集成测试。"""
 
 import os
 import tempfile
@@ -12,7 +12,7 @@ from agent_workflow.state_machine.runner import Runner
 EXAMPLES_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
     "workflows",
-    "requirement-breakdown",
+    "req-analysis",
 )
 
 
@@ -35,13 +35,13 @@ def _build_runner(tmpdir: str) -> Runner:
     )
 
 
-class TestRequirementBreakdownFlow:
+class TestReqAnalysisFlow:
     """需求拆分 workflow 的 mock 链路验证。"""
 
     def test_load_workflow(self):
         wf = load_workflow(os.path.join(EXAMPLES_DIR, "workflow.yaml"))
 
-        assert wf.name == "requirement-breakdown"
+        assert wf.name == "req-analysis"
         assert wf.initial_state == "understand_requirements"
         assert list(wf.states) == [
             "understand_requirements",
