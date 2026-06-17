@@ -142,6 +142,7 @@ class Runner:
         agents: dict[str, AgentModel] | None = None,
         event_bus: Any = None,
         skills_dir: str | None = None,
+        mock_script: dict | None = None,
     ) -> "Runner":
         """从既有 run_root 加载 RunContext 并恢复 Runner。
 
@@ -173,6 +174,7 @@ class Runner:
             agents=agents,
             event_bus=event_bus,
             skills_dir=skills_dir,
+            mock_script=mock_script,
         )
 
         runner._run_id = context.run_id

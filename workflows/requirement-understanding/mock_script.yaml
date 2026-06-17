@@ -1,0 +1,24 @@
+# mock 模式 decision 脚本。
+# 纯需求理解链路，不包含 advice。
+
+decision_script:
+  understand_deepseek:
+    - done
+  understand_claude:
+    - done
+  understand_codex:
+    - done
+  review_by_claude:
+    - done
+  review_by_codex:
+    - done
+  review_by_deepseek:
+    - done
+  combine_consensus:
+    - done
+  generate_clarification_questions:
+    - done
+  human_clarification_gate:
+    - done
+  final_requirement_synthesis:
+    - done

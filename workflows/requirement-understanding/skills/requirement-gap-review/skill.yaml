@@ -1,0 +1,31 @@
+skill:
+  name: requirement-gap-review
+  version: "1"
+  description: "需求理解交叉审查节点规范"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "输出技术路线、架构建议或实现计划"
+      - "重写被审查的需求理解文档"
+      - "把 review 写成主观 advice"
+  content: |
+    # Requirement Gap Review Node
+
+    本节点只做 gap check / ambiguity check / scope check / consistency check。
+
+    ## 审查维度
+
+    - 原始需求是否被准确复述
+    - 是否遗漏目标用户、场景、流程、规则、指标或边界
+    - 是否把方案设计混入需求理解
+    - 是否存在不可验收、不可验证或自相矛盾的表述
+    - 哪些问题必须由用户澄清
+
+    ## 判断标准
+
+    - `done`: 审查完成，可进入后续合并。
+    - `blocked`: 输入不足，无法审查。
+    - `fail`: 被审查文档严重偏离需求或不可审查。

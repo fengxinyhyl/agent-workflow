@@ -1,0 +1,25 @@
+skill:
+  name: clarification-questions
+  version: "1"
+  description: "需求澄清问题生成节点规范"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "提出方案选择题替代需求澄清"
+      - "询问已经在共识报告中确认的问题"
+      - "输出技术路线、架构建议或实现计划"
+  content: |
+    # Clarification Questions Node
+
+    本节点把分歧和缺失信息转成用户可回答的问题。
+
+    ## 问题分层
+
+    - Blocking Questions: 不回答就无法形成最终需求的问题
+    - Important Questions: 影响范围、边界、验收标准的问题
+    - Optional Questions: 可延后确认的问题
+
+    每个问题必须关联具体分歧项或缺失信息，并给出建议回答格式。

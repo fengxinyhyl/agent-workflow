@@ -1,0 +1,66 @@
+outputs:
+  understanding_deepseek:
+    type: markdown
+    description: "DeepSeek 独立需求理解，不含方案建议"
+    produced_by:
+      - understand_deepseek
+
+  understanding_claude:
+    type: markdown
+    description: "Claude 独立需求理解，不含方案建议"
+    produced_by:
+      - understand_claude
+
+  understanding_codex:
+    type: markdown
+    description: "Codex 独立需求理解，不含方案建议"
+    produced_by:
+      - understand_codex
+
+  review_claude:
+    type: markdown
+    description: "Claude 对 DeepSeek 需求理解的交叉审查"
+    produced_by:
+      - review_by_claude
+
+  review_codex:
+    type: markdown
+    description: "Codex 对 Claude 需求理解的交叉审查"
+    produced_by:
+      - review_by_codex
+
+  review_deepseek:
+    type: markdown
+    description: "DeepSeek 对 Codex 需求理解的交叉审查"
+    produced_by:
+      - review_by_deepseek
+
+  consensus_report:
+    type: markdown
+    description: "共识需求、分歧需求、缺失信息和共识度评分"
+    produced_by:
+      - combine_consensus
+
+  clarification_questions:
+    type: markdown
+    description: "面向用户的需求澄清问题"
+    produced_by:
+      - generate_clarification_questions
+
+  human_clarification_request:
+    type: markdown
+    description: "人工澄清 gate 暂停前的裁决请求"
+    produced_by:
+      - human_clarification_gate
+
+  human_clarification:
+    type: markdown
+    description: "用户回答的澄清信息，由 continue --input 注入"
+    produced_by:
+      - external_human
+
+  final_requirement:
+    type: markdown
+    description: "最终需求理解产物，可作为 PRD 或 spec-dev 输入"
+    produced_by:
+      - final_requirement_synthesis

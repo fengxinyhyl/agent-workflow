@@ -1,0 +1,36 @@
+skill:
+  name: requirement-understand
+  version: "1"
+  description: "独立需求理解节点规范"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "输出技术路线、架构建议或实现计划"
+      - "读取其他模型的需求理解产物"
+      - "把假设写成已确认事实"
+  content: |
+    # Requirement Understand Node
+
+    本节点只负责独立理解需求，不做方案设计。
+
+    ## 必须包含
+
+    - 原始需求复述
+    - 用户真实目标
+    - 目标用户/角色
+    - 使用场景和运营流程
+    - 需求能力清单
+    - 非目标和范围边界
+    - 已知约束和假设
+    - 缺失信息
+    - 易产生误解的点
+    - 可验收的需求表述
+
+    ## 判断标准
+
+    - `done`: 需求理解完整，可进入交叉审查。
+    - `blocked`: 缺少关键上下文，无法可靠理解。
+    - `fail`: 需求不可处理或与安全边界冲突。

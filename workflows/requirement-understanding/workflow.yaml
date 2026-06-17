@@ -1,0 +1,422 @@
+# requirement-understanding Workflow
+# 纯需求理解链路:
+#   三个模型独立理解 -> 交叉审查 -> 共识/分歧/缺失信息合并
+#   -> 生成澄清问题 -> 形成最终需求理解产物
+#
+# 本 workflow 不做 advice、不做方案设计、不推荐技术路线。
+
+name: requirement-understanding
+version: "1"
+description: |
+  多模型需求理解工作流。通过三份独立理解、交叉审查、共识合并、
+  分歧识别和澄清问题生成，产出不含方案建议的 final_requirement。
+
+initial_state: understand_deepseek
+
+guards:
+  max_visits: 2
+  max_duration_minutes: 180
+  max_retries: 2
+  on_guard_failed: failed
+
+terminal_states:
+  - done
+  - failed
+  - cancelled
+
+required_skills:
+  - agent-workflow-lifecycle
+
+tasks:
+  understand_deepseek:
+    instruction: |
+      独立理解 goal 和 project_context 中的产品/运营需求。
+
+      只输出需求理解，不输出 advice、方案建议、技术路线、架构建议或实现计划。
+      不读取其他模型的理解结果。
+
+      必须包含:
+      1. 原始需求复述
+      2. 用户真实目标
+      3. 目标用户/角色
+      4. 使用场景和运营流程
+      5. 需求能力清单
+      6. 非目标和范围边界
+      7. 已知约束和假设
+      8. 缺失信息
+      9. 易产生误解的点
+      10. 可验收的需求表述
+    agent: cc-deepseek
+    input:
+      - goal
+      - project_context
+    output: understanding_deepseek
+    skills:
+      - requirement-understand
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  understand_claude:
+    instruction: |
+      独立理解 goal 和 project_context 中的产品/运营需求。
+
+      只输出需求理解，不输出 advice、方案建议、技术路线、架构建议或实现计划。
+      不读取其他模型的理解结果。
+
+      必须包含:
+      1. 原始需求复述
+      2. 用户真实目标
+      3. 目标用户/角色
+      4. 使用场景和运营流程
+      5. 需求能力清单
+      6. 非目标和范围边界
+      7. 已知约束和假设
+      8. 缺失信息
+      9. 易产生误解的点
+      10. 可验收的需求表述
+    agent: cc-opus
+    input:
+      - goal
+      - project_context
+    output: understanding_claude
+    skills:
+      - requirement-understand
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  understand_codex:
+    instruction: |
+      独立理解 goal 和 project_context 中的产品/运营需求。
+
+      只输出需求理解，不输出 advice、方案建议、技术路线、架构建议或实现计划。
+      不读取其他模型的理解结果。
+
+      必须包含:
+      1. 原始需求复述
+      2. 用户真实目标
+      3. 目标用户/角色
+      4. 使用场景和运营流程
+      5. 需求能力清单
+      6. 非目标和范围边界
+      7. 已知约束和假设
+      8. 缺失信息
+      9. 易产生误解的点
+      10. 可验收的需求表述
+    agent: codex
+    input:
+      - goal
+      - project_context
+    output: understanding_codex
+    skills:
+      - requirement-understand
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  review_by_claude:
+    instruction: |
+      审查 understanding_deepseek 的需求理解质量。
+
+      只做 gap check / ambiguity check / scope check / consistency check。
+      禁止输出 advice、方案建议、技术路线、架构建议或实现计划。
+
+      必须检查:
+      1. 是否准确复述原始需求
+      2. 是否遗漏目标用户、场景、流程、规则、指标或边界
+      3. 是否把方案设计混入需求理解
+      4. 是否存在不可验收、不可验证或自相矛盾的表述
+      5. 需要用户澄清的问题
+    agent: cc-opus
+    input:
+      - goal
+      - project_context
+      - understanding_deepseek
+    output: review_claude
+    skills:
+      - requirement-gap-review
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  review_by_codex:
+    instruction: |
+      审查 understanding_claude 的需求理解质量。
+
+      只做 gap check / ambiguity check / scope check / consistency check。
+      禁止输出 advice、方案建议、技术路线、架构建议或实现计划。
+
+      必须检查:
+      1. 是否准确复述原始需求
+      2. 是否遗漏目标用户、场景、流程、规则、指标或边界
+      3. 是否把方案设计混入需求理解
+      4. 是否存在不可验收、不可验证或自相矛盾的表述
+      5. 需要用户澄清的问题
+    agent: codex
+    input:
+      - goal
+      - project_context
+      - understanding_claude
+    output: review_codex
+    skills:
+      - requirement-gap-review
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  review_by_deepseek:
+    instruction: |
+      审查 understanding_codex 的需求理解质量。
+
+      只做 gap check / ambiguity check / scope check / consistency check。
+      禁止输出 advice、方案建议、技术路线、架构建议或实现计划。
+
+      必须检查:
+      1. 是否准确复述原始需求
+      2. 是否遗漏目标用户、场景、流程、规则、指标或边界
+      3. 是否把方案设计混入需求理解
+      4. 是否存在不可验收、不可验证或自相矛盾的表述
+      5. 需要用户澄清的问题
+    agent: cc-deepseek
+    input:
+      - goal
+      - project_context
+      - understanding_codex
+    output: review_deepseek
+    skills:
+      - requirement-gap-review
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  combine_consensus:
+    instruction: |
+      读取三份需求理解和三份交叉审查，合并出需求理解共识报告。
+
+      共识度只是中间指标，不是最终通过依据。禁止输出 advice、方案建议、
+      技术路线、架构建议或实现计划。
+
+      必须包含:
+      1. Consensus Requirements: 三方一致或高度一致的需求项
+      2. Divergent Requirements: 三方理解不一致的需求项
+      3. Missing Information: 缺失、模糊、无法验证的信息
+      4. Contamination Check: 是否有模型混入方案设计或技术路线
+      5. Consensus Score: 0-100，并说明评分依据
+      6. Human Decision Needed: 必须由用户裁决的事项
+    agent: codex
+    input:
+      - understanding_deepseek
+      - understanding_claude
+      - understanding_codex
+      - review_claude
+      - review_codex
+      - review_deepseek
+    output: consensus_report
+    skills:
+      - requirement-consensus
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  generate_clarification_questions:
+    instruction: |
+      基于 consensus_report 生成给用户回答的澄清问题。
+
+      问题必须用于收敛需求理解，不得引入方案建议或技术路线。
+
+      必须包含:
+      1. Blocking Questions: 不回答就无法形成最终需求的问题
+      2. Important Questions: 影响范围、边界、验收标准的问题
+      3. Optional Questions: 可延后确认的问题
+      4. 每个问题关联的分歧项或缺失信息
+      5. 建议的回答格式
+    agent: cc-opus
+    input:
+      - consensus_report
+      - project_context
+    output: clarification_questions
+    skills:
+      - clarification-questions
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  human_clarification_gate:
+    instruction: |
+      基于 clarification_questions 和 consensus_report，生成等待用户裁决的请求文档。
+
+      本节点执行完成后由 Runner 暂停，等待外部通过 continue 命令注入
+      human_clarification。禁止替用户回答澄清问题，禁止输出 advice、方案建议、
+      技术路线、架构建议或实现计划。
+
+      必须包含:
+      1. 需要用户回答的 Blocking Questions
+      2. 需要用户裁决的 Divergent Requirements
+      3. 建议的回答格式
+      4. 不回答时 final_requirement 会保留为未确认事项的说明
+    agent: cc-opus
+    input:
+      - clarification_questions
+      - consensus_report
+    output: human_clarification_request
+    skills:
+      - human-clarification-gate
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  final_requirement_synthesis:
+    instruction: |
+      基于三份理解、三份审查、consensus_report、clarification_questions
+      和 human_clarification，形成最终需求理解产物。
+
+      如果缺少用户实际澄清回答，必须把未确认事项保留为待确认问题，
+      不能替用户做主观裁决。禁止输出 advice、方案建议、技术路线、
+      架构建议或实现计划。
+
+      必须包含:
+      1. Final Requirement Summary
+      2. 用户目标和业务目标
+      3. 目标用户/角色
+      4. 场景、流程和规则
+      5. 功能需求清单
+      6. 非目标和范围边界
+      7. 验收标准
+      8. 已确认共识
+      9. 未确认分歧
+      10. 待用户回答的问题
+      11. 可交给后续 PRD / spec-dev 的需求输入摘要
+    agent: cc-opus
+    input:
+      - understanding_deepseek
+      - understanding_claude
+      - understanding_codex
+      - review_claude
+      - review_codex
+      - review_deepseek
+      - consensus_report
+      - clarification_questions
+      - human_clarification
+    output: final_requirement
+    skills:
+      - final-requirement
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+states:
+  understand_deepseek:
+    task: understand_deepseek
+    on:
+      done: understand_claude
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "DeepSeek 独立理解需求"
+
+  understand_claude:
+    task: understand_claude
+    on:
+      done: understand_codex
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "Claude 独立理解需求"
+
+  understand_codex:
+    task: understand_codex
+    on:
+      done: review_by_claude
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "Codex 独立理解需求"
+
+  review_by_claude:
+    task: review_by_claude
+    on:
+      done: review_by_codex
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "Claude 审查 DeepSeek 的需求理解"
+
+  review_by_codex:
+    task: review_by_codex
+    on:
+      done: review_by_deepseek
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "Codex 审查 Claude 的需求理解"
+
+  review_by_deepseek:
+    task: review_by_deepseek
+    on:
+      done: combine_consensus
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "DeepSeek 审查 Codex 的需求理解"
+
+  combine_consensus:
+    task: combine_consensus
+    on:
+      done: generate_clarification_questions
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "合并共识、分歧和缺失信息"
+
+  generate_clarification_questions:
+    task: generate_clarification_questions
+    on:
+      done: human_clarification_gate
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "生成用户澄清问题"
+
+  human_clarification_gate:
+    task: human_clarification_gate
+    on:
+      approve: final_requirement_synthesis
+      reject: failed
+    default: failed
+    gate: true
+    description: "等待用户回答澄清问题并裁决分歧"
+
+  final_requirement_synthesis:
+    task: final_requirement_synthesis
+    on:
+      done: done
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "形成最终需求理解产物"
+
+  done:
+    task: ""
+    terminal: true
+    description: "工作流成功完成"
+
+  failed:
+    task: ""
+    terminal: true
+    description: "工作流失败终止"
+
+  cancelled:
+    task: ""
+    terminal: true
+    description: "工作流被取消"

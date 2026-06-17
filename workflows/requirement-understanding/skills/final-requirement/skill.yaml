@@ -1,0 +1,31 @@
+skill:
+  name: final-requirement
+  version: "1"
+  description: "最终需求理解产物节点规范"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "替用户裁决未确认分歧"
+      - "输出技术路线、架构建议或实现计划"
+      - "把最终需求写成 implementation plan"
+  content: |
+    # Final Requirement Node
+
+    本节点形成最终需求理解产物，可作为 PRD 或后续 spec-dev 输入。
+
+    ## 必须包含
+
+    - Final Requirement Summary
+    - 用户目标和业务目标
+    - 目标用户/角色
+    - 场景、流程和规则
+    - 功能需求清单
+    - 非目标和范围边界
+    - 验收标准
+    - 已确认共识
+    - 未确认分歧
+    - 待用户回答的问题
+    - 可交给后续 PRD / spec-dev 的需求输入摘要

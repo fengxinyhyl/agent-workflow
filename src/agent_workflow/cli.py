@@ -10,6 +10,7 @@ P0 CLI 命令：
   log                   查看运行日志
   tail                  查看节点日志
   retry                 重试（默认 dry-run）
+  continue              从 Gate 暂停状态恢复
   cancel                取消运行
 """
 
@@ -436,6 +437,76 @@ def cmd_retry(args):
     return 0 if result.get("ok") else 1
 
 
+def _copy_human_clarification(input_path: str, runner) -> str:
+    """把人工澄清文件复制为 run artifact 并登记到 RunContext。"""
+    import shutil
+
+    if runner.context is None:
+        raise RuntimeError("Runner context 未初始化")
+
+    source = os.path.abspath(input_path)
+    if not os.path.exists(source):
+        raise FileNotFoundError(f"人工澄清输入不存在: {input_path}")
+
+    artifacts_dir = os.path.join(runner.context.run_root, "artifacts")
+    os.makedirs(artifacts_dir, exist_ok=True)
+    target = os.path.join(artifacts_dir, "human_clarification.md")
+    shutil.copy2(source, target)
+    runner.context.promote_artifact("human_clarification", target)
+    runner.context.save()
+    return target
+
+
+def cmd_continue(args):
+    """从 Gate 暂停状态继续执行。"""
+    from .config.loader import load_workflow
+    from .state_machine.runner import Runner
+
+    if args.approve == args.reject:
+        safe_print("[FAIL] 必须且只能指定 --approve 或 --reject")
+        return 1
+
+    run_root = _find_run_root(
+        args.run_id,
+        project_root=getattr(args, 'project_root', None) or None,
+        run_root_hint=getattr(args, 'run_root', None) or None,
+    )
+    if run_root is None:
+        safe_print(f"[FAIL] 未找到运行: {args.run_id}")
+        return 1
+
+    if not args.workflow:
+        safe_print("[FAIL] continue 需要 --workflow 以恢复状态机配置")
+        return 1
+
+    try:
+        wf = load_workflow(args.workflow)
+        agents_dict, skills_dir, mock_script = _discover_agents(args)
+        runner = Runner.attach_existing(
+            run_root,
+            wf,
+            project_root=getattr(args, 'project_root', None) or ".",
+            agents=agents_dict if agents_dict else None,
+            skills_dir=getattr(args, 'skills_dir', None) or skills_dir,
+            mock_script=mock_script,
+        )
+
+        if args.input:
+            artifact_path = _copy_human_clarification(args.input, runner)
+            safe_print(f"[*] 已注入 human_clarification: {artifact_path}")
+
+        final_state = runner.continue_from_gate(approved=args.approve)
+        if final_state == "failed":
+            safe_print(f"[FAIL] Workflow 继续后失败: {args.run_id}")
+            return 1
+
+        safe_print(f"[OK] Workflow 已继续: {args.run_id} -> {final_state}")
+        return 0
+    except Exception as e:
+        safe_print(f"[FAIL] continue 失败: {e}")
+        return 1
+
+
 def cmd_cancel(args):
     """取消运行。支持 cross-cwd 取消。"""
     from .state_machine.runner import cancel_run
@@ -537,6 +608,20 @@ def build_parser():
     p.add_argument("--project-root", "-p", help="项目根目录（用于 run_index.json 发现）")
     p.add_argument("--run-root", help="run_root 路径（直接指定）")
     p.set_defaults(func=cmd_retry)
+
+    # continue
+    p = sub.add_parser("continue", help="从 Gate 暂停状态继续执行")
+    p.add_argument("--run-id", "-r", required=True, help="Run ID")
+    p.add_argument("--workflow", "-w", required=True, help="workflow YAML 路径")
+    p.add_argument("--approve", action="store_true", help="批准 gate 并继续")
+    p.add_argument("--reject", action="store_true", help="拒绝 gate 并进入 failed")
+    p.add_argument("--input", help="人工澄清 Markdown 文件，注入为 human_clarification artifact")
+    p.add_argument("--project-root", "-p", help="项目根目录（用于 run_index.json 发现）")
+    p.add_argument("--run-root", help="run_root 路径（直接指定）")
+    p.add_argument("--agents", help="agents YAML 路径（默认自动发现 workflow 同目录下的 agents.yaml）")
+    p.add_argument("--skills-dir", help="skills 目录（默认自动发现 workflow 同目录下的 skills/）")
+    p.add_argument("--mock-script", help="mock decision 脚本 YAML（默认自动发现 workflow 同目录下的 mock_script.yaml，仅 mock 模式生效）")
+    p.set_defaults(func=cmd_continue)
 
     # cancel
     p = sub.add_parser("cancel", help="取消运行")

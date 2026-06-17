@@ -1,0 +1,24 @@
+skill:
+  name: human-clarification-gate
+  version: "1"
+  description: "人工澄清等待节点规范"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "替用户回答澄清问题"
+      - "输出技术路线、架构建议或实现计划"
+      - "绕过人工裁决直接继续"
+  content: |
+    # Human Clarification Gate Node
+
+    本节点生成等待人工裁决的请求文档。Runner 会在本 state 执行并 promotion 后暂停。
+
+    ## 必须包含
+
+    - 需要用户回答的 Blocking Questions
+    - 需要用户裁决的 Divergent Requirements
+    - 建议的回答格式
+    - 不回答时 final_requirement 会保留为未确认事项的说明

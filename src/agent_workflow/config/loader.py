@@ -73,6 +73,19 @@ def _check_forbidden_keys(
             )
 
 
+def _as_bool(value: Any) -> bool:
+    """将 YAML 中的布尔字段归一化为 bool。
+
+    本 loader 禁用了 YAML bool 自动转换以保护 `on` transition key，
+    因此 `gate: true` / `terminal: true` 会先以字符串进入模型。
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "yes", "on", "1")
+    return bool(value)
+
+
 def load_task(data: dict[str, Any]) -> TaskModel:
     """从字典加载 TaskModel。
 
@@ -110,8 +123,8 @@ def load_state(data: dict[str, Any]) -> StateModel:
         on=data.get("on", {}),
         default=data.get("default", "failed"),
         description=data.get("description", ""),
-        terminal=data.get("terminal", False),
-        gate=data.get("gate", False),
+        terminal=_as_bool(data.get("terminal", False)),
+        gate=_as_bool(data.get("gate", False)),
     )
 
 

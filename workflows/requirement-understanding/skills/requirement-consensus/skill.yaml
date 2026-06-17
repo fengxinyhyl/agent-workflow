@@ -1,0 +1,28 @@
+skill:
+  name: requirement-consensus
+  version: "1"
+  description: "需求理解共识合并节点规范"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "把共识度评分当成最终通过依据"
+      - "用多数票覆盖用户未确认的分歧"
+      - "输出技术路线、架构建议或实现计划"
+  content: |
+    # Requirement Consensus Node
+
+    本节点合并多份需求理解和审查结果，产出共识、分歧、缺失信息和共识度评分。
+
+    ## 必须包含
+
+    - Consensus Requirements
+    - Divergent Requirements
+    - Missing Information
+    - Contamination Check
+    - Consensus Score
+    - Human Decision Needed
+
+    共识度只是中间指标，不是最终目标。

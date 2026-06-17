@@ -52,6 +52,7 @@ agent-workflow status -r <run_id>     # 查看运行状态
 agent-workflow explain -r <run_id>    # 解释当前等待项
 agent-workflow log -r <run_id> --summary  # 查看汇总日志
 agent-workflow tail -r <run_id> -s <state> # 查看节点日志
+agent-workflow continue -r <run_id> -w <workflow.yaml> --approve --input <human_clarification.md>  # 从 Gate 恢复
 agent-workflow cancel -r <run_id>     # 取消运行
 agent-workflow retry -r <run_id> [--dispatch]  # 重试
 ```
@@ -758,7 +759,38 @@ states:
     default: failed
 ```
 
-Gate 状态暂停 Runner 主循环，由外部（如人工操作者）调用 `continue_from_gate()` 注入 decision 后继续。
+Gate 状态暂停 Runner 主循环。CLI 使用 `agent-workflow continue` 恢复：
+
+```bash
+agent-workflow continue -r <run_id> -w <workflow.yaml> --approve
+agent-workflow continue -r <run_id> -w <workflow.yaml> --reject
+```
+
+如需注入人工回答，可通过 `--input` 把 Markdown 文件登记为 `human_clarification` artifact：
+
+```bash
+agent-workflow continue -r <run_id> -w <workflow.yaml> --approve --input human_clarification.md
+```
+
+即使终端关闭，运行状态仍保存在 `workflow_state.json`，`continue` 会按 `run_index.json` / run 目录恢复。
+
+#### 模式 6：纯需求理解 + 人工澄清
+
+```yaml
+states:
+  generate_clarification_questions:
+    on:
+      done: human_clarification_gate
+
+  human_clarification_gate:
+    gate: true
+    on:
+      approve: final_requirement_synthesis
+      reject: failed
+    default: failed
+```
+
+适用于 `requirement-understanding` 这类需求理解工作流：先生成 `clarification_questions`，再暂停等待用户裁决；用户补充 `human_clarification.md` 后继续生成 `final_requirement`。
 
 ---
 
@@ -864,12 +896,52 @@ Agent 必须输出标准 JSON，核心字段：
 | `plan-review-advise-loop` | 7 | plan → review(×2) → advise(×2) → execute → summary | `_loop` 展开两轮审核，含提前通过机制 |
 | `plan-review-advise-execute` | 6 | plan → review → advise → execute | 通用四阶段链路，最小可用模板 |
 | `software-dev` | 10 | plan → review_plan → revise_plan → execute → audit → revise_execute → summary | P0 示例，独立 revise state 模式 |
+| `requirement-understanding` | 13 | understand×3 → review×3 → consensus → clarification_questions → human_clarification_gate → final_requirement | 纯需求理解，多模型独立解读、交叉审查、人工澄清恢复 |
+
+### requirement-understanding 使用方式
+
+`requirement-understanding` 只负责需求理解，不做 advice、不做方案设计、不推荐技术路线。它会产出共识需求、分歧需求、缺失信息、澄清问题，并在 `human_clarification_gate` 暂停等待用户回答。
+
+启动：
+
+```bash
+agent-workflow run -w workflows/requirement-understanding/workflow.yaml -g "<产品运营需求>"
+```
+
+查看暂停状态：
+
+```bash
+agent-workflow status -r <run_id>
+agent-workflow explain -r <run_id>
+```
+
+用户回答澄清问题后，保存为 `human_clarification.md`，再继续：
+
+```bash
+agent-workflow continue \
+  -r <run_id> \
+  -w workflows/requirement-understanding/workflow.yaml \
+  --approve \
+  --input human_clarification.md
+```
+
+如果用户裁决为不继续：
+
+```bash
+agent-workflow continue \
+  -r <run_id> \
+  -w workflows/requirement-understanding/workflow.yaml \
+  --reject
+```
+
+恢复后会继续执行 `final_requirement_synthesis`，最终产物是 `final_requirement`，可作为后续 PRD 或 `spec-dev` 输入。
 
 ### 选择建议
 
 - **快速开始 / 学习编排**：从 `plan-review-advise-execute` 开始，最简四阶段
 - **理解 _loop**：读 `plan-review-advise-loop`，单循环展开
 - **理解条件回流开发流**：读 `spec-dev`，review/test 节点用 approve/revise/reject 驱动修订
+- **理解需求澄清流程**：读 `requirement-understanding`，多模型理解后在 Gate 等待人工澄清
 - **实际项目使用**：用 `standard-dev`，覆盖完整 SDLC
 
 ---
