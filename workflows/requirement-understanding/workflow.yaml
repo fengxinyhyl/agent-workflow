@@ -252,17 +252,24 @@ tasks:
 
   human_clarification_gate:
     instruction: |
-      基于 clarification_questions 和 consensus_report，生成等待用户裁决的请求文档。
+      本节点是纯格式转换节点。基于 clarification_questions（唯一问题来源）生成等待用户
+      裁决的请求文档。consensus_report 仅用于补充问题背景，不从中提取新问题。
 
       本节点执行完成后由 Runner 暂停，等待外部通过 continue 命令注入
       human_clarification。禁止替用户回答澄清问题，禁止输出 advice、方案建议、
       技术路线、架构建议或实现计划。
 
+      核心约束:
+      1. clarification_questions 是问题的唯一权威来源，不新增、不丢弃、不重分类任何问题
+      2. 保留原始编号（BQ-x / IQ-x / OQ-x）和优先级，不自行创建 DR-x 等新编号体系
+      3. 回答模板按 BQ-1~N / IQ-1~N / OQ-1~N 排列
+
       必须包含:
-      1. 需要用户回答的 Blocking Questions
-      2. 需要用户裁决的 Divergent Requirements
+      1. 说明：不回答的后果
+      2. 完整的问题清单（原封不动来自 clarification_questions）
       3. 建议的回答格式
-      4. 不回答时 final_requirement 会保留为未确认事项的说明
+      4. 统一的用户回答模板
+      5. 继续流程指引（/req-understand continue <run_id>）
     agent: cc-opus
     input:
       - clarification_questions

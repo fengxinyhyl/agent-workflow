@@ -1,7 +1,7 @@
 skill:
   name: human-clarification-gate
-  version: "1"
-  description: "人工澄清等待节点规范"
+  version: "2"
+  description: "人工澄清等待节点规范——将 clarification_questions 转换为面向用户的裁决请求"
   policy:
     allowed_decisions:
       - done
@@ -11,14 +11,55 @@ skill:
       - "替用户回答澄清问题"
       - "输出技术路线、架构建议或实现计划"
       - "绕过人工裁决直接继续"
+      - "从 consensus_report 或其他产物中挖掘 clarification_questions 未包含的新问题"
+      - "丢弃或跳过 clarification_questions 中的任何问题"
+      - "自行修改 clarification_questions 中的问题编号、优先级分类或措辞"
   content: |
     # Human Clarification Gate Node
 
-    本节点生成等待人工裁决的请求文档。Runner 会在本 state 执行并 promotion 后暂停。
+    本节点是**纯格式转换节点**，不执行新的需求分析。它把 `clarification_questions` 中已经确定的问题列表转成面向用户的裁决请求文档，Runner 执行完成后暂停。
+
+    ## 输入
+
+    - `clarification_questions`：唯一的问题来源
+    - `consensus_report`：仅用于补充每个问题的背景上下文，**不从中提取新问题**
+
+    ## 核心约束
+
+    ### 1. 问题来源单一
+
+    `clarification_questions` 是问题的**唯一权威来源**。本节点不得：
+    - 从 `consensus_report` 中提取新的问题或分歧项
+    - 重新阅读原始需求文档发现"遗漏"的问题
+    - 将 Important Questions 自行升级为 Blocking 或降级为 Optional
+
+    ### 2. 问题完整性
+
+    `clarification_questions` 中的所有问题必须**原封不动**出现在请求文档中：
+    - 保留原始编号（BQ-x / IQ-x / OQ-x）
+    - 保留原始优先级（Blocking / Important / Optional）
+    - 保留原始措辞，不自行改写
+    - 不丢弃任何问题
+
+    ### 3. 可选的展示重组
+
+    在保持编号和优先级不变的前提下，允许以下展示优化：
+    - 将属于"三方模型理解分歧"的 Important Questions（如 IQ-2, IQ-3, IQ-4 等）在展示时附上"分歧裁决"标签，帮助用户理解这些问题的裁决性质
+    - 在每个问题后追加"关联共识报告发现"的简短上下文（不超过 2 句）
+    - 在文档末尾附上统一的回答模板
+
+    但以上仅为展示辅助，问题的编号/优先级/措辞不得改动。
 
     ## 必须包含
 
-    - 需要用户回答的 Blocking Questions
-    - 需要用户裁决的 Divergent Requirements
-    - 建议的回答格式
-    - 不回答时 final_requirement 会保留为未确认事项的说明
+    - 说明：不回答的后果
+    - 完整的问题清单（源自 clarification_questions）
+    - 每个问题的建议回答格式（源自 clarification_questions）
+    - 统一的用户回答模板（按 BQ-1~N / IQ-1~N / OQ-1~N 排列）
+    - 继续流程指引（/req-understand continue <run_id>）
+
+    ## 禁止
+
+    - 新增 DR-x 系列编号（如果 clarification_questions 中不存在）
+    - 将 IQ 类问题拆分为"需裁决的"和"不需裁决的"两组不同的展示编号体系
+    - 在回答模板中要求用户按 DR-x 编号回答（用户应直接按 BQ/IQ/OQ 编号回答）
