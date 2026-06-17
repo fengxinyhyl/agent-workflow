@@ -177,9 +177,6 @@ states:
 - **CodexCLI**：调用 Codex CLI (`codex exec`)，解析 JSONL 输出提取 thread_id / usage
 - **安全拦截**：`_assert_safe_permission()` 拒绝 `--dangerouslyDisableSandbox` / `--permission-mode bypass`；`_assert_safe_sandbox()` 白名单限制 Codex `--sandbox` 值
 
-### Replacement Parity（与 legacy 对齐）
-
-当前 root `agent-workflow` 正在替换 legacy `strategy.research.agent_workflow`。目标 parity 是 legacy 的 10 节点生命周期（`lineage_preflight → scaffold → plan → review → revise → human_approval → execute → code_audit → final_packet → summary`），而非当前 root 的 5 步 `DEFAULT_STEPS`。详细 parity contract 见 `docs/replacement-parity.md`。
 
 ## 测试约定
 

@@ -1,4 +1,0 @@
-{"ts": "2026-06-11T19:01:28.860828+08:00", "source": "stdout", "text": "line1"}
-{"ts": "2026-06-11T19:01:28.861296+08:00", "source": "stdout", "text": "line2"}
-{"ts": "2026-06-11T19:01:28.861524+08:00", "source": "stdout", "text": "{\"type\":\"result\",\"usage\":{\"input_tokens\":10}}"}
-{"ts": "2026-06-11T19:01:28.861034+08:00", "source": "stderr", "text": "warning"}

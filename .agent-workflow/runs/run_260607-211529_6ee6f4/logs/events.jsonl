@@ -1,9 +1,0 @@
-{"event": "WorkflowStarted", "timestamp": "2026-06-07T21:15:29.187509+08:00", "run_id": "run_260607-211529_6ee6f4", "state": "", "task": "", "payload": {"workflow_id": "software-dev", "goal": "二次审核冒烟", "initial_state": "codex_plan"}}
-{"event": "StateEntered", "timestamp": "2026-06-07T21:15:29.188508+08:00", "run_id": "", "state": "codex_plan", "task": "plan", "payload": {"attempt": 1}}
-{"event": "SkillAdoptionWritten", "timestamp": "2026-06-07T21:15:29.188508+08:00", "run_id": "", "state": "codex_plan", "task": "", "payload": {"skills": ["agent-workflow-lifecycle"]}}
-{"event": "AgentStarted", "timestamp": "2026-06-07T21:15:29.199651+08:00", "run_id": "", "state": "codex_plan", "task": "plan", "payload": {"agent": "codex_plan"}}
-{"event": "TaskResultWritten", "timestamp": "2026-06-07T21:15:29.212506+08:00", "run_id": "", "state": "codex_plan", "task": "", "payload": {"path": "F:\\code\\stock\\agent-workflow\\.agent-workflow\\runs\\run_260607-211529_6ee6f4\\staging\\codex_plan\\task_result.json"}}
-{"event": "ValidatorFinished", "timestamp": "2026-06-07T21:15:29.215508+08:00", "run_id": "", "state": "codex_plan", "task": "", "payload": {"passed": true, "warnings": []}}
-{"event": "TaskFinished", "timestamp": "2026-06-07T21:15:29.215508+08:00", "run_id": "", "state": "codex_plan", "task": "", "payload": {"decision": "fail", "status": "failed"}}
-{"event": "TransitionSelected", "timestamp": "2026-06-07T21:15:29.215508+08:00", "run_id": "", "state": "", "task": "", "payload": {"current_state": "codex_plan", "decision": "fail", "next_state": "failed", "matched": true, "reason": "匹配到 on['fail']"}}
-{"event": "WorkflowCompleted", "timestamp": "2026-06-07T21:15:29.216508+08:00", "run_id": "run_260607-211529_6ee6f4", "state": "", "task": "", "payload": {"final_state": "failed", "total_states": 1}}
