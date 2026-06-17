@@ -94,12 +94,14 @@ def get_status(run_id: str, run_root: str | None = None) -> str:
         last_result = task_results.get(last_state, {})
         last_decision = last_result.get("decision", "none")
 
-    # 当前 task 和 agent — 优先从 workflow_variables 读取
+    # 当前 task 和 agent — 优先 per-state resolved agent，再回退到 _current_agent / task_result
     current_task = state_data.get("current_task", "") or ""
     wf_vars = state_data.get("workflow_variables", {})
+    override_meta = wf_vars.get(f"_agent_override_{current_state}", {})
     current_agent = (
-        wf_vars.get("_current_agent", "") or
-        task_results.get(current_state, {}).get("agent", "")
+        override_meta.get("resolved_agent")
+        or wf_vars.get("_current_agent", "")
+        or task_results.get(current_state, {}).get("agent", "")
     )
     # 如果当前 state 没有 task_result，回退到最后一个有 agent 的 task_result
     if not current_agent and task_results:

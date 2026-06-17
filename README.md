@@ -46,6 +46,8 @@ agent-workflow validate-config        # 校验工作流配置
 agent-workflow validate-state-machine # 校验状态机完备性
 agent-workflow smoke --agent <name>   # Agent/Role 冒烟测试
 agent-workflow run -w <workflow.yaml> -g "<目标>"  # 启动工作流
+agent-workflow run -w <workflow.yaml> -g "<目标>" \
+  --agent-map "task:review=cc-deepseek,state:review_r2=claude-haiku"  # 运行时覆盖 agent
 agent-workflow status -r <run_id>     # 查看运行状态
 agent-workflow explain -r <run_id>    # 解释当前等待项
 agent-workflow log -r <run_id> --summary  # 查看汇总日志

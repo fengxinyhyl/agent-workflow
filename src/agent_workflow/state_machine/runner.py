@@ -78,6 +78,7 @@ class Runner:
         event_bus: Any = None,
         skills_dir: str | None = None,
         mock_script: dict | None = None,
+        agent_overrides: dict[str, str] | None = None,
     ):
         self.workflow = workflow
         self.goal = goal
@@ -120,6 +121,9 @@ class Runner:
         # mock 模式的 decision 脚本（按 state 名 → decision 列表），
         # 仅在 mock fallback 时生效，用于演示状态机回流分支。
         self._mock_script = mock_script or {}
+
+        # CLI 运行时 agent 覆盖（两级：state: / task:）
+        self._agent_overrides: dict[str, str] = agent_overrides or {}
 
         # 心跳控制
         self._heartbeat_thread: threading.Thread | None = None
@@ -173,6 +177,9 @@ class Runner:
 
         runner._run_id = context.run_id
         runner.context = context
+
+        # 从持久化上下文恢复 agent overrides
+        runner._agent_overrides = context.workflow_variables.get("_agent_overrides", {})
 
         # 设置 guard 启动时间
         runner.guard_checker.set_start_time(
@@ -259,6 +266,10 @@ class Runner:
 
         # P0b: 保存 workflow snapshot 到 context（供 status/explain 使用）
         self.context.workflow_variables["_workflow_snapshot"] = self.workflow.to_dict()
+
+        # 持久化 agent overrides（供 retry/attach_existing 恢复）
+        if self._agent_overrides:
+            self.context.workflow_variables["_agent_overrides"] = dict(self._agent_overrides)
 
         # 初始化 current_state
         self.context.current_state = self.sm.initial_state
@@ -772,14 +783,31 @@ class Runner:
         if self.context:
             self.context.current_task = state.task if state.task else None
 
-        # 解决 Role → Agent
-        agent_name = self._resolve_agent(task_model) if task_model else "mock"
+        # 解决 Role → Agent（两级覆盖：state: > task: > YAML > mock）
+        agent_name = self._resolve_agent(state_name, task_model)
 
-        # P0b: 维护 _current_agent
+        # 计算 override 元数据
+        matched_key: str | None = None
+        if self._agent_overrides:
+            if f"state:{state_name}" in self._agent_overrides:
+                matched_key = f"state:{state_name}"
+            elif task_model and f"task:{task_model.name}" in self._agent_overrides:
+                matched_key = f"task:{task_model.name}"
+
+        # P0b: 维护 _current_agent 及 per-state override 元数据
         if self.context:
             self.context.workflow_variables["_current_agent"] = agent_name
             # 记录每个 state 使用的 agent，供汇总表使用
             self.context.workflow_variables[f"_agent_{state_name}"] = agent_name
+            # per-state override 元数据（供 status/explain 使用）
+            override_meta: dict = {"resolved_agent": agent_name}
+            if matched_key:
+                override_meta.update({
+                    "source": "cli",
+                    "matched_key": matched_key,
+                    "original_agent": task_model.agent if task_model else "mock",
+                })
+            self.context.workflow_variables[f"_agent_override_{state_name}"] = override_meta
 
         # P0d: Skill adoption for this state
         adopted_skills: dict = {}
@@ -831,12 +859,19 @@ class Runner:
             agent_input.skill_context = skill_context_override
 
         # 发射 AgentStarted
-        self._get_event_bus().emit("AgentStarted", {
+        agent_started_payload: dict = {
             "state": state_name,
             "task": task_model.name if task_model else None,
             "agent": agent_name,
             "timestamp": _now_iso(),
-        })
+        }
+        if matched_key:
+            agent_started_payload.update({
+                "agent_override": True,
+                "original_agent": task_model.agent if task_model else "mock",
+                "matched_key": matched_key,
+            })
+        self._get_event_bus().emit("AgentStarted", agent_started_payload)
 
         # 执行 Agent
         start_time = time.time()
@@ -876,7 +911,7 @@ class Runner:
         task_config = AgentTaskConfig(
             name=task_model.name if task_model else state_name,
             instruction=task_model.instruction if task_model else "",
-            agent=task_model.agent if task_model else agent_name,
+            agent=agent_name,
             inputs=task_model.inputs if task_model else [],
             output=task_model.output if task_model else "",
         )
@@ -971,11 +1006,27 @@ class Runner:
         except ImportError:
             return None
 
-    def _resolve_agent(self, task_model: TaskModel | None) -> str:
-        """解析 Task → Agent 名称。"""
+    def _resolve_agent(self, state_name: str, task_model: TaskModel | None) -> str:
+        """按优先级解析 agent：state 覆盖 > task 覆盖 > task.agent > mock fallback。"""
         if task_model is None:
             return "mock"
-        return task_model.agent or "mock"
+
+        # 1. state 级 CLI 覆盖（最高优先）
+        state_key = f"state:{state_name}"
+        if state_key in self._agent_overrides:
+            return self._agent_overrides[state_key]
+
+        # 2. task 级 CLI 覆盖
+        task_key = f"task:{task_model.name}"
+        if task_key in self._agent_overrides:
+            return self._agent_overrides[task_key]
+
+        # 3. YAML 配置
+        if task_model.agent:
+            return task_model.agent
+
+        # 4. mock fallback
+        return "mock"
 
     def _get_current_task_model(self) -> TaskModel | None:
         """获取当前 state 对应的 TaskModel。"""

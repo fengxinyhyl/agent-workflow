@@ -202,6 +202,54 @@ def _discover_agents(args):
     return agents_dict, skills_dir, mock_script
 
 
+def _parse_agent_map(raw: str) -> dict[str, str]:
+    """解析 --agent-map 字符串，返回 {key: agent_name}。
+
+    key 格式必须为 "state:<name>" 或 "task:<name>"。
+    格式错误时抛出 ValueError（fail-fast）。
+    """
+    if not raw:
+        return {}
+    result: dict[str, str] = {}
+    for part in raw.split(','):
+        part = part.strip()
+        if '=' not in part:
+            raise ValueError(f"--agent-map 格式错误（缺少 '='）：{part!r}")
+        key, value = part.split('=', 1)
+        key, value = key.strip(), value.strip()
+        if not key:
+            raise ValueError(f"--agent-map key 不能为空：{part!r}")
+        if not value:
+            raise ValueError(f"--agent-map value 不能为空：{part!r}")
+        if not (key.startswith('state:') or key.startswith('task:')):
+            raise ValueError(f"--agent-map key 必须以 'state:' 或 'task:' 开头：{key!r}")
+        if key in result:
+            raise ValueError(f"--agent-map 包含重复 key：{key!r}")
+        result[key] = value
+    return result
+
+
+def _validate_agent_overrides(
+    agent_overrides: dict[str, str],
+    workflow,
+    agents_dict: dict,
+) -> None:
+    """校验 agent overrides 中的 state/task 存在于 workflow，agent 已注册。"""
+    valid_states = set(workflow.states.keys())
+    valid_tasks = set(workflow.tasks.keys())
+    for key, agent_name in agent_overrides.items():
+        if key.startswith('state:'):
+            name = key[len('state:'):]
+            if name not in valid_states:
+                raise ValueError(f"--agent-map 引用了不存在的 state：{name!r}")
+        elif key.startswith('task:'):
+            name = key[len('task:'):]
+            if name not in valid_tasks:
+                raise ValueError(f"--agent-map 引用了不存在的 task：{name!r}")
+        if agent_name != 'mock' and agents_dict and agent_name not in agents_dict:
+            raise ValueError(f"--agent-map 引用了未注册的 agent：{agent_name!r}（请检查 agents.yaml）")
+
+
 def cmd_run(args):
     """启动 workflow。"""
     from .config.loader import load_workflow
@@ -212,6 +260,20 @@ def cmd_run(args):
     # P0e: 自动发现并加载 agents
     agents_dict, skills_dir, mock_script = _discover_agents(args)
 
+    # 解析并校验 --agent-map
+    try:
+        agent_overrides = _parse_agent_map(getattr(args, 'agent_map', '') or '')
+    except ValueError as e:
+        safe_print(f"[FAIL] {e}", file=sys.stderr)
+        return 1
+
+    if agent_overrides:
+        try:
+            _validate_agent_overrides(agent_overrides, wf, agents_dict)
+        except ValueError as e:
+            safe_print(f"[FAIL] {e}", file=sys.stderr)
+            return 1
+
     runner = Runner(
         wf,
         goal=args.goal,
@@ -221,6 +283,7 @@ def cmd_run(args):
         agents=agents_dict if agents_dict else None,
         skills_dir=getattr(args, 'skills_dir', None) or skills_dir,
         mock_script=mock_script,
+        agent_overrides=agent_overrides or None,
     )
     run_id = runner.start()
     safe_print(f"\n[START] Workflow 启动: {run_id}")
@@ -430,6 +493,8 @@ def build_parser():
     p.add_argument("--agents", help="agents YAML 路径（默认自动发现 workflow 同目录下的 agents.yaml）")
     p.add_argument("--skills-dir", help="skills 目录（默认自动发现 workflow 同目录下的 skills/）")
     p.add_argument("--mock-script", help="mock decision 脚本 YAML（默认自动发现 workflow 同目录下的 mock_script.yaml，仅 mock 模式生效）")
+    p.add_argument("--agent-map", default="",
+                   help="运行时 agent 覆盖，格式: state:s1=agent1,task:t1=agent2")
     p.set_defaults(func=cmd_run)
 
     # status

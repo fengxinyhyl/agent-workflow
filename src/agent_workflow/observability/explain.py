@@ -90,14 +90,15 @@ def get_explanation(run_id: str, run_root: str | None = None) -> str:
     # 检查心跳
     stale, stale_reason = check_stale(run_root)
 
-    # 获取当前 Agent（从 task 配置或 workflow_variables 回退）
-    current_agent = task_config.get("agent", "")
-    if not current_agent:
-        current_agent = wf_vars.get("_current_agent", "")
-    if not current_agent:
-        task_results = state_data.get("task_results", {})
-        tr = task_results.get(current_state, {})
-        current_agent = tr.get("agent", "")
+    # 获取当前 Agent（优先级：per-state resolved > _current_agent > task_result > YAML task）
+    override_meta = wf_vars.get(f"_agent_override_{current_state}", {})
+    task_results = state_data.get("task_results", {})
+    current_agent = (
+        override_meta.get("resolved_agent")
+        or wf_vars.get("_current_agent", "")
+        or task_results.get(current_state, {}).get("agent", "")
+        or task_config.get("agent", "")
+    )
 
     # 构建输出
     lines = [
