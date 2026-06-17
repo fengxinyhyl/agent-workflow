@@ -1,0 +1,37 @@
+skill:
+  name: constraints-objectives
+  version: "1"
+  description: "Constraints & Objectives 控制面节点规范"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "输出架构草案"
+      - "直接做技术选型结论"
+      - "自行批准 hard constraint relaxation"
+  content: |
+    # Constraints & Objectives Node
+
+    本节点是架构工作流的控制面。目标是把“感觉合理”变成可审查的约束空间。
+
+    ## 必须拆成三类
+
+    - Hard Constraints: SLA、成本上限、技术栈限制、合规/安全要求等不可违反约束
+    - Soft Constraints: 可扩展性、可维护性、延迟目标、复杂度、可观测性等优化目标
+    - Optimization Function: 优先级函数，例如 `cost < latency < scalability < complexity`
+
+    ## 每条约束必须包含
+
+    - Constraint
+    - Type: hard / soft
+    - Source: final_requirement / project_context / assumption / derived
+    - Measurement or verification
+    - Approval required for relaxation: yes / no
+
+    ## 判断标准
+
+    - `done`: hard/soft constraints 清晰，optimization function 可用于评估取舍。
+    - `blocked`: 关键约束无法从输入中确定，且无法以待确认方式表达。
+    - `fail`: 约束集合自相矛盾，无法形成可行约束空间。

@@ -1,0 +1,46 @@
+skill:
+  name: architecture-draft
+  version: "1"
+  description: "Draft Architecture 节点规范"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "编写业务代码"
+      - "跳过 constraint 对齐"
+      - "省略组件到 driver 的映射"
+      - "把未确认问题伪装成已确定决策"
+  content: |
+    # Draft Architecture Node
+
+    本节点负责产出可进入 Evaluation Gate 的系统架构草案。
+
+    ## 每个组件必须使用的结构
+
+    ```text
+    Component:
+    Responsibility:
+    Driver Mapping:
+    Constraint Coverage:
+    ```
+
+    ## 必须包含
+
+    - 架构目标、设计原则和范围边界
+    - 系统上下文、组件职责和边界
+    - 每个组件的 Driver Mapping 与 Constraint Coverage
+    - 关键运行时流程、数据流和一致性策略
+    - API / 事件 / 集成契约草案
+    - Hard Constraints 合规说明
+    - Soft Constraints 优化策略
+    - 技术选型、备选方案和取舍依据
+    - 安全、权限、审计、隐私、可观测性和故障恢复
+    - 风险和开放问题
+
+    ## 判断标准
+
+    - `done`: 草案完整、可审查、可追溯，且逐条对齐 constraints。
+    - `blocked`: 缺少 constraints_objectives 或关键输入，无法形成可靠草案。
+    - `fail`: 架构目标不可行或违反 hard constraints。

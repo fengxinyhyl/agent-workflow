@@ -20,6 +20,12 @@ def test_workflow_architecture_skill_loads_from_project_skills():
     assert "Workflow Architect 八步协议" in skill.content
     assert "Step1 任务分类" in skill.content
     assert "Step8 工作流输出" in skill.content
+    assert "Pattern Selection" in skill.content
+    assert "Architecture Convergence Pattern" in skill.content
+    assert "Research / Evidence Pattern" in skill.content
+    assert "Rubric Evaluation Pattern" in skill.content
+    assert "structure_constraints_objectives" in skill.content
+    assert "Reversibility cost" in skill.content
     assert "条件回流" in skill.content
     assert "allowed_decisions" in skill.content
     assert skill.policy.allowed_decisions == []

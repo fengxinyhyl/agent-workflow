@@ -1,0 +1,39 @@
+skill:
+  name: conflict-driven-revision
+  version: "1"
+  description: "Conflict-driven Revision 节点规范"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "自由修改非 violation / conflict 相关内容"
+      - "自行批准 constraint relaxation"
+      - "只写采纳说明，不输出完整修订后架构"
+      - "编写业务代码"
+  content: |
+    # Conflict-driven Revision Node
+
+    本节点只能基于 Evaluation Gate 的 Violation List 和 Trade-off Conflict List 修订架构。
+
+    ## 每个 conflict 的 resolution strategy 只能属于
+
+    - trade-off acceptance
+    - architecture change
+    - constraint relaxation
+
+    ## 必须包含
+
+    - Violation Resolution Table
+    - Trade-off Conflict Resolution Table
+    - Constraint Relaxation Requests
+    - 完整的修订后架构方案
+    - 相对上一版的关键变更
+    - 剩余风险和待确认问题
+
+    ## 判断标准
+
+    - `done`: 已逐条处理 violation / conflict，并输出完整修订版。
+    - `blocked`: evaluation_report 中缺少必要的 violation / conflict 信息。
+    - `fail`: 修订过程失败或发现方案不可行。

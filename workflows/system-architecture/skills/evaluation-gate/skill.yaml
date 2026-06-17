@@ -1,0 +1,48 @@
+skill:
+  name: evaluation-gate
+  version: "1"
+  description: "Evaluation Gate 评分矩阵节点规范"
+  policy:
+    allowed_decisions:
+      - approve
+      - revise
+      - reject
+      - fail
+      - blocked
+    forbidden_actions:
+      - "直接修改架构方案"
+      - "编写代码"
+      - "只给笼统评价不输出评分矩阵"
+      - "忽略 hard constraint violation"
+  content: |
+    # Evaluation Gate Node
+
+    本节点只评估，不修改方案。输出必须可驱动 conflict_revision。
+
+    ## 必须输出评分矩阵
+
+    ```text
+    | Dimension | Score | Explanation |
+    |-----------|-------|-------------|
+    | constraint compliance | pass/fail | 是否违反 hard constraints |
+    | scalability | 1-5 |  |
+    | complexity | 1-5 |  |
+    | failure isolation | 1-5 |  |
+    | cost efficiency | 1-5 |  |
+    ```
+
+    ## 必须包含
+
+    - Blocker List
+    - Violation List: hard constraint 违反项，含证据、影响和架构位置
+    - Trade-off Conflict List: soft constraints 或 optimization function 之间的冲突
+    - Relaxation Requests: 任何 constraint relaxation 都必须标记为显式审批
+    - Residual Risks
+
+    ## 判断标准
+
+    - `approve`: constraint compliance 为 pass，且无 blocker。
+    - `revise`: 存在可修复 blocker、violation 或 trade-off conflict。
+    - `reject`: 方案方向或输入根本不可接受。
+    - `blocked`: 缺少评估所需关键输入。
+    - `fail`: 评估过程失败或发现不可继续的安全边界冲突。

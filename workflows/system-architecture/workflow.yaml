@@ -1,0 +1,338 @@
+# system-architecture Workflow
+# 根据已澄清需求形成系统架构:
+#   extract_drivers -> structure_constraints_objectives -> draft_architecture
+#   -> evaluation_gate
+#     approve -> architecture_freeze
+#     revise  -> conflict_revision -> evaluation_gate
+#
+# 本 workflow 做系统架构方案，不做代码实现，不替代需求澄清。
+
+name: system-architecture
+version: "1"
+description: |
+  根据 final_requirement、goal 和 project_context 形成可审查、可追溯的系统架构产物。
+  工作流显式建模 Drivers、Constraints & Objectives、Draft Architecture、Evaluation Gate、
+  Conflict-driven Revision 和 Architecture Freeze + ADR 六层。
+
+initial_state: extract_drivers
+
+guards:
+  max_visits: 3
+  max_duration_minutes: 240
+  max_retries: 2
+  on_guard_failed: failed
+
+terminal_states:
+  - done
+  - failed
+  - cancelled
+
+required_skills:
+  - agent-workflow-lifecycle
+
+tasks:
+  extract_drivers:
+    instruction: |
+      阅读 final_requirement、goal 和 project_context，提炼系统架构的 Drivers。
+
+      如果缺少 final_requirement，可基于 goal 和 project_context 继续，但必须标记需求未澄清带来的风险。
+      本节点只提炼驱动因素，不输出约束优先级、不输出完整架构方案、不做代码实现计划。
+
+      必须包含:
+      1. Business Goals: 业务目标、成功指标和关键用户价值
+      2. Technical Goals: 技术目标、演进目标和质量诉求
+      3. Key Use Cases: 关键用例、核心流程和外部参与方
+      4. Data Drivers: 关键数据对象、数据生命周期和一致性诉求
+      5. Integration Drivers: 外部系统、集成点和边界上下文
+      6. Implicit Assumptions: 必须显式化的隐含假设
+      7. Driver Risks: 会显著影响架构的风险项
+    agent: cc-opus
+    input:
+      - final_requirement
+      - goal
+      - project_context
+    output: architecture_drivers
+    skills:
+      - architecture-drivers
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  structure_constraints_objectives:
+    instruction: |
+      基于 architecture_drivers、final_requirement 和 project_context，结构化 Constraints & Objectives。
+
+      本节点是架构控制面，目标是把“感觉合理”转化为可审查的约束空间。
+      不输出架构草案，不做技术选型结论，不替用户批准约束放宽。
+
+      必须包含:
+      1. Hard Constraints: 不可违反约束，包括 SLA、成本上限、技术栈限制、合规/安全要求
+      2. Soft Constraints: 优化目标，包括可扩展性、可维护性、延迟目标、复杂度、可观测性等
+      3. Optimization Function: 优先级函数，例如 cost < latency < scalability < complexity，并解释含义
+      4. Constraint Source: 每条约束来自 final_requirement、project_context、显式假设还是推导
+      5. Measurement / Verification: 每条约束如何被验证或评分
+      6. Approval Required: 哪些约束若要 relaxation 必须显式审批
+      7. Unresolved Constraint Questions: 仍需用户确认的问题
+    agent: cc-opus
+    input:
+      - architecture_drivers
+      - final_requirement
+      - project_context
+    output: constraints_objectives
+    skills:
+      - constraints-objectives
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  draft_architecture:
+    instruction: |
+      基于 architecture_drivers 和 constraints_objectives 设计系统架构草案。
+
+      架构草案必须逐条对齐 constraint。每个组件必须标注服务哪个 driver，
+      以及覆盖哪些 hard/soft constraints。不得写代码，不得把实现任务拆成开发计划。
+      对无法确定的选型必须列出备选方案、取舍依据和待确认问题。
+
+      每个组件必须使用以下结构:
+      Component:
+      Responsibility:
+      Driver Mapping:
+      Constraint Coverage:
+
+      必须包含:
+      1. 架构目标、设计原则和范围边界
+      2. 上下文图说明: 用户、外部系统、系统边界
+      3. 逻辑组件划分和职责，并逐项写 Driver Mapping 与 Constraint Coverage
+      4. 关键运行时流程和交互序列
+      5. 数据模型、存储边界、数据流和一致性策略
+      6. API / 事件 / 集成契约草案
+      7. Hard Constraints 合规说明
+      8. Soft Constraints 优化策略
+      9. 技术选型建议及备选方案取舍
+      10. 安全、权限、审计和隐私考虑
+      11. 可观测性、部署、扩展和故障恢复策略
+      12. 开放问题、风险和后续验证建议
+    agent: cc-opus
+    input:
+      - architecture_drivers
+      - constraints_objectives
+      - final_requirement
+      - project_context
+    output: architecture_draft
+    version_strategy: increment
+    skills:
+      - architecture-draft
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  evaluation_gate:
+    instruction: |
+      基于 architecture_drivers、constraints_objectives 和最新架构方案执行结构化 Evaluation Gate。
+
+      只做评估，不直接修改方案，不写代码。若已有上一轮 evaluation_report 和 conflict_revision_doc，
+      必须核对上一轮 violation / conflict 是否已被解决。
+
+      必须输出评分矩阵:
+      | Dimension | Score | Explanation |
+      |-----------|-------|-------------|
+      | constraint compliance | pass/fail | 是否违反 hard constraints |
+      | scalability | 1-5 |  |
+      | complexity | 1-5 |  |
+      | failure isolation | 1-5 |  |
+      | cost efficiency | 1-5 |  |
+
+      必须额外包含:
+      1. Blocker List: 必须修复项
+      2. Violation List: hard constraint 违反项，含证据、影响和对应架构位置
+      3. Trade-off Conflict List: soft constraints 或 optimization function 之间的冲突
+      4. Relaxation Requests: 任何需要放宽 hard constraint 的事项，必须标记为显式审批
+      5. Residual Risks: 即使 approve 也保留的风险
+
+      决策:
+      - approve: constraint compliance 为 pass，且无 blocker，可进入 Architecture Freeze
+      - revise: 存在可修复 blocker、violation 或 trade-off conflict，回到 conflict_revision
+      - reject: 方案方向或输入不可接受，终止
+
+      输出 evaluation_report，并在 TaskResult decision 中使用 approve / revise / reject。
+    agent: cc-deepseek
+    input:
+      - architecture_drivers
+      - constraints_objectives
+      - architecture_draft:latest
+      - architecture_draft:all
+      - conflict_revision_doc:latest
+      - conflict_revision_doc:all
+      - evaluation_report:latest
+      - final_requirement
+      - project_context
+    output: evaluation_report
+    version_strategy: increment
+    skills:
+      - evaluation-gate
+    allowed_decisions:
+      - approve
+      - revise
+      - reject
+      - fail
+      - blocked
+
+  conflict_revision:
+    instruction: |
+      根据 evaluation_report 中的 Violation List 和 Trade-off Conflict List 进行冲突驱动修订。
+
+      禁止自由修改。输入必须以 violation list 和 trade-off conflict list 为准。
+      对任何 constraint relaxation，必须标记为需要显式审批，不能自行批准。
+
+      每个 conflict 必须输出 resolution strategy，且只能属于:
+      - trade-off acceptance: 接受权衡，并说明为什么符合 optimization function
+      - architecture change: 修改架构，并说明影响的 component / data flow / contract
+      - constraint relaxation: 请求放宽约束，并说明审批项、风险和替代方案
+
+      输出 conflict_revision_doc，必须包含:
+      1. Violation Resolution Table: 每条 violation 的处理策略和修订结果
+      2. Trade-off Conflict Resolution Table: 每条 conflict 的 resolution strategy
+      3. Constraint Relaxation Requests: 需要显式审批的约束放宽请求
+      4. 完整的修订后架构方案
+      5. 相对上一版 architecture_draft 或 conflict_revision_doc 的关键变更
+      6. 剩余风险和待确认问题
+
+      使用 done 表示本轮冲突修订完成。
+    agent: cc-opus
+    input:
+      - architecture_drivers
+      - constraints_objectives
+      - architecture_draft:latest
+      - evaluation_report:latest
+      - conflict_revision_doc:all
+      - final_requirement
+      - project_context
+    output: conflict_revision_doc
+    version_strategy: increment
+    skills:
+      - conflict-driven-revision
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  architecture_freeze:
+    instruction: |
+      基于 architecture_drivers、constraints_objectives、architecture_draft、evaluation_report
+      和历次 conflict_revision_doc，形成 Architecture Freeze + ADR 产物 final_architecture。
+
+      必须以最新通过 Evaluation Gate 的方案为准，并冻结关键架构决策。
+      不写代码，不输出详细开发排期。
+
+      必须包含:
+      1. Architecture Freeze Summary
+      2. 架构目标、范围和非目标
+      3. Drivers / Constraints / Objectives 到架构决策的追踪矩阵
+      4. 系统上下文、组件职责和边界
+      5. 关键业务流程、运行时交互和错误处理
+      6. 数据架构、存储边界、一致性和迁移考虑
+      7. API / 事件 / 集成契约
+      8. Evaluation Gate 评分矩阵摘要和最终通过依据
+      9. Hard Constraints 合规声明
+      10. Soft Constraints 权衡说明
+      11. 风险、开放问题和需要验证的假设
+      12. 可交给 spec-dev / 开发工作流的架构输入摘要
+
+      ADR 必须使用以下格式逐条写入:
+      Decision:
+      Context:
+      Options considered:
+      Trade-offs:
+      Final choice:
+      Reversibility cost:
+    agent: cc-opus
+    input:
+      - architecture_drivers
+      - constraints_objectives
+      - architecture_draft:all
+      - evaluation_report:all
+      - conflict_revision_doc:all
+      - final_requirement
+      - project_context
+    output: final_architecture
+    skills:
+      - architecture-freeze
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+states:
+  extract_drivers:
+    task: extract_drivers
+    on:
+      done: structure_constraints_objectives
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "提炼业务目标、技术目标和隐含假设"
+
+  structure_constraints_objectives:
+    task: structure_constraints_objectives
+    on:
+      done: draft_architecture
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "结构化 hard constraints、soft constraints 和 optimization function"
+
+  draft_architecture:
+    task: draft_architecture
+    on:
+      done: evaluation_gate
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "生成逐条对齐约束和 driver 的系统架构草案"
+
+  evaluation_gate:
+    task: evaluation_gate
+    on:
+      approve: architecture_freeze
+      revise: conflict_revision
+      reject: failed
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "结构化评分、blocker、violation 和 trade-off conflict gate"
+
+  conflict_revision:
+    task: conflict_revision
+    on:
+      done: evaluation_gate
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "基于 violation 和 conflict 的冲突驱动修订"
+
+  architecture_freeze:
+    task: architecture_freeze
+    on:
+      done: done
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "冻结架构并生成 ADR"
+
+  done:
+    task: ""
+    terminal: true
+    description: "工作流成功完成"
+
+  failed:
+    task: ""
+    terminal: true
+    description: "工作流失败终止"
+
+  cancelled:
+    task: ""
+    terminal: true
+    description: "工作流被取消"

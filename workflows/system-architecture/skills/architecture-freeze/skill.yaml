@@ -1,0 +1,48 @@
+skill:
+  name: architecture-freeze
+  version: "1"
+  description: "Architecture Freeze + ADR 节点规范"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "输出详细代码实现"
+      - "删除关键决策链路"
+      - "隐藏未确认假设和残余风险"
+      - "省略 ADR 的 reversibility cost"
+  content: |
+    # Architecture Freeze + ADR Node
+
+    本节点冻结已通过 Evaluation Gate 的架构，并输出 ADR。
+
+    ## 必须包含
+
+    - Architecture Freeze Summary
+    - 架构目标、范围和非目标
+    - Drivers / Constraints / Objectives 到架构决策的追踪矩阵
+    - 系统上下文、组件职责和边界
+    - 关键业务流程、数据架构和集成契约
+    - Evaluation Gate 评分矩阵摘要和最终通过依据
+    - Hard Constraints 合规声明
+    - Soft Constraints 权衡说明
+    - 风险、开放问题和需要验证的假设
+    - 可交给 spec-dev / 开发工作流的架构输入摘要
+
+    ## ADR 格式
+
+    ```text
+    Decision:
+    Context:
+    Options considered:
+    Trade-offs:
+    Final choice:
+    Reversibility cost:
+    ```
+
+    ## 判断标准
+
+    - `done`: 架构已冻结，ADR 完整，且关键决策可追溯。
+    - `blocked`: 缺少通过 Evaluation Gate 的方案，无法可靠冻结。
+    - `fail`: 定稿过程失败或架构不可接受。

@@ -1,0 +1,17 @@
+# mock 模式 decision 脚本。
+# 默认覆盖一次 revise -> approve 的 Evaluation Gate 回流。
+
+decision_script:
+  extract_drivers:
+    - done
+  structure_constraints_objectives:
+    - done
+  draft_architecture:
+    - done
+  evaluation_gate:
+    - revise
+    - approve
+  conflict_revision:
+    - done
+  architecture_freeze:
+    - done

@@ -1,0 +1,36 @@
+outputs:
+  architecture_drivers:
+    type: markdown
+    description: "业务目标、技术目标、关键用例、数据/集成驱动因素和显式化隐含假设"
+    produced_by:
+      - extract_drivers
+
+  constraints_objectives:
+    type: markdown
+    description: "hard constraints、soft constraints、optimization function、验证方式和审批要求"
+    produced_by:
+      - structure_constraints_objectives
+
+  architecture_draft:
+    type: markdown
+    description: "逐条对齐 driver 和 constraint 的系统架构草案"
+    produced_by:
+      - draft_architecture
+
+  evaluation_report:
+    type: markdown
+    description: "Evaluation Gate 评分矩阵、blocker list、violation list 和 trade-off conflict list"
+    produced_by:
+      - evaluation_gate
+
+  conflict_revision_doc:
+    type: markdown
+    description: "基于 violation / conflict 的修订策略、完整修订后架构和约束放宽审批请求"
+    produced_by:
+      - conflict_revision
+
+  final_architecture:
+    type: markdown
+    description: "Architecture Freeze + ADR，包含最终架构、追踪矩阵、评分摘要和 ADR 记录"
+    produced_by:
+      - architecture_freeze

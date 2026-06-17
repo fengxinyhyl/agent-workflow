@@ -1,0 +1,34 @@
+skill:
+  name: architecture-drivers
+  version: "1"
+  description: "Drivers 提炼节点规范"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "输出 constraints 优先级函数"
+      - "输出完整架构方案"
+      - "编写代码或实现计划"
+      - "替用户裁决未澄清需求"
+  content: |
+    # Drivers Node
+
+    本节点只把需求转化为架构驱动因素，不能过早给出约束优先级或完整方案。
+
+    ## 必须包含
+
+    - Business Goals: 业务目标、成功指标和关键用户价值
+    - Technical Goals: 技术目标、演进目标和质量诉求
+    - Key Use Cases: 关键用例、核心流程和外部参与方
+    - Data Drivers: 关键数据对象、数据生命周期和一致性诉求
+    - Integration Drivers: 外部系统、集成点和边界上下文
+    - Implicit Assumptions: 必须显式化的隐含假设
+    - Driver Risks: 会显著影响架构的风险项
+
+    ## 判断标准
+
+    - `done`: drivers 足够进入 constraints/objectives 结构化，且隐含假设已显式化。
+    - `blocked`: 缺少关键需求，无法可靠提炼 drivers。
+    - `fail`: 目标与安全边界或项目约束明显冲突。
