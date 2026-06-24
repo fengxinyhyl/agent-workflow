@@ -17,6 +17,14 @@ skill:
 
     本节点只把需求转化为架构驱动因素，不能过早给出约束优先级或完整方案。
 
+    ## 执行前的必读步骤
+
+    1. 先 Read final_requirement 产物
+    2. 找到其中的"原始文档来源"章节
+    3. 对列出的每一份原始文档，用 Read 逐份阅读
+    4. 原始文档中的页面结构、字段定义、业务规则是提炼 Data Drivers 和
+       Key Use Cases 的关键输入，不得仅依赖 final_requirement 的摘要
+
     ## 必须包含
 
     - Business Goals: 业务目标、成功指标和关键用户价值

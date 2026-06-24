@@ -2,6 +2,8 @@
 # 默认覆盖一次 revise -> approve 的 Evaluation Gate 回流。
 
 decision_script:
+  gather_context:
+    - done
   extract_drivers:
     - done
   structure_constraints_objectives:

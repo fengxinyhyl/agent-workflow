@@ -7,7 +7,11 @@
 ## 流程
 
 ```text
-final_requirement + goal + project_context
+goal + project_context
+  ↓
+gather_context (读取原始 PRD、README、现有代码)
+  ↓
+project_analysis + final_requirement
   ↓
 extract_drivers
   ↓
@@ -21,10 +25,11 @@ evaluation_gate
   └─ reject  → failed
 ```
 
-## 六层定义
+## 七层定义
 
 | Layer | State | Output | 工程化定义 |
 |-------|-------|--------|------------|
+| Project Context Gathering | `gather_context` | `project_analysis` | 读取原始 PRD、README、现有代码资产，产出结构化项目分析 |
 | Drivers | `extract_drivers` | `architecture_drivers` | 输出业务目标、技术目标和必须显式化的隐含假设 |
 | Constraints & Objectives | `structure_constraints_objectives` | `constraints_objectives` | 拆分 hard constraints、soft constraints 和 optimization function |
 | Draft Architecture | `draft_architecture` | `architecture_draft` | 每个组件必须写 `Component → Responsibility → Driver Mapping → Constraint Coverage` |
@@ -59,6 +64,7 @@ python -m agent_workflow.cli run `
 
 | Artifact | 来源节点 | 作用 |
 |----------|----------|------|
+| `project_analysis` | `gather_context` | 原始 PRD 摘要、技术栈、现有数据模型/API/页面分析和差距分析 |
 | `architecture_drivers` | `extract_drivers` | 业务目标、技术目标、关键用例、数据/集成驱动因素和隐含假设 |
 | `constraints_objectives` | `structure_constraints_objectives` | hard constraints、soft constraints、optimization function 和验证方式 |
 | `architecture_draft` | `draft_architecture` | 逐条对齐 driver 和 constraint 的系统架构草案 |

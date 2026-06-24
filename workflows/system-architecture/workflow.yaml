@@ -1,6 +1,6 @@
 # system-architecture Workflow
 # 根据已澄清需求形成系统架构:
-#   extract_drivers -> structure_constraints_objectives -> draft_architecture
+#   gather_context -> extract_drivers -> structure_constraints_objectives -> draft_architecture
 #   -> evaluation_gate
 #     approve -> architecture_freeze
 #     revise  -> conflict_revision -> evaluation_gate
@@ -10,11 +10,12 @@
 name: system-architecture
 version: "1"
 description: |
-  根据 final_requirement、goal 和 project_context 形成可审查、可追溯的系统架构产物。
-  工作流显式建模 Drivers、Constraints & Objectives、Draft Architecture、Evaluation Gate、
-  Conflict-driven Revision 和 Architecture Freeze + ADR 六层。
+  根据 project_analysis、final_requirement、goal 和 project_context 形成可审查、可追溯的系统架构产物。
+  工作流显式建模 Project Context Gathering、Drivers、Constraints & Objectives、
+  Draft Architecture、Evaluation Gate、Conflict-driven Revision 和
+  Architecture Freeze + ADR 七层。
 
-initial_state: extract_drivers
+initial_state: gather_context
 
 guards:
   max_visits: 3
@@ -29,8 +30,45 @@ terminal_states:
 
 required_skills:
   - agent-workflow-lifecycle
+  - gather-project-context
 
 tasks:
+  gather_context:
+    instruction: |
+      系统性地收集项目中的原始文档和现有实现资产，产出结构化的 project_analysis。
+
+      必须按优先级读取：
+      1. doc/requirement/ 下的原始产品需求文档（PRD）
+      2. README.md 了解技术栈和项目结构
+      3. AGENTS.md / CLAUDE.md 了解项目约定
+
+      如存在代码资产，必须探索：
+      4. backend/app/models/ 了解现有数据模型
+      5. backend/app/api/ 了解现有 API 接口
+      6. frontend/src/pages/ 了解现有前端页面
+
+      产出的 project_analysis 必须包含：
+      1. 原始产品需求摘要（定位、流程、页面架构、业务对象、规则、一期范围）
+      2. 已确定技术栈（后端、前端、基础设施）
+      3. 现有数据模型（如有代码则分析，否则标注"尚无"并列出需求中的隐含数据对象）
+      4. 现有 API 接口（如有则分析，否则标注"尚无"）
+      5. 现有前端页面（如有则分析，否则标注"尚无"）
+      6. 差距分析（需求 vs 现有实现的覆盖情况和关键缺口）
+
+      本节点不输出架构方案、constraints 或 optimization function。
+    agent: cc-opus
+    input:
+      - final_requirement
+      - goal
+      - project_context
+    output: project_analysis
+    skills:
+      - gather-project-context
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
   extract_drivers:
     instruction: |
       阅读 final_requirement、goal 和 project_context，提炼系统架构的 Drivers。
@@ -48,6 +86,7 @@ tasks:
       7. Driver Risks: 会显著影响架构的风险项
     agent: cc-opus
     input:
+      - project_analysis
       - final_requirement
       - goal
       - project_context
@@ -76,6 +115,7 @@ tasks:
       7. Unresolved Constraint Questions: 仍需用户确认的问题
     agent: cc-opus
     input:
+      - project_analysis
       - architecture_drivers
       - final_requirement
       - project_context
@@ -116,6 +156,7 @@ tasks:
       12. 开放问题、风险和后续验证建议
     agent: cc-opus
     input:
+      - project_analysis
       - architecture_drivers
       - constraints_objectives
       - final_requirement
@@ -160,6 +201,7 @@ tasks:
       输出 evaluation_report，并在 TaskResult decision 中使用 approve / revise / reject。
     agent: cc-deepseek
     input:
+      - project_analysis
       - architecture_drivers
       - constraints_objectives
       - architecture_draft:latest
@@ -203,6 +245,7 @@ tasks:
       使用 done 表示本轮冲突修订完成。
     agent: cc-opus
     input:
+      - project_analysis
       - architecture_drivers
       - constraints_objectives
       - architecture_draft:latest
@@ -250,6 +293,7 @@ tasks:
       Reversibility cost:
     agent: cc-opus
     input:
+      - project_analysis
       - architecture_drivers
       - constraints_objectives
       - architecture_draft:all
@@ -266,6 +310,15 @@ tasks:
       - blocked
 
 states:
+  gather_context:
+    task: gather_context
+    on:
+      done: extract_drivers
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "收集原始需求文档、技术栈说明和现有实现资产"
+
   extract_drivers:
     task: extract_drivers
     on:

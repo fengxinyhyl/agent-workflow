@@ -1,0 +1,89 @@
+skill:
+  name: gather-project-context
+  version: "1"
+  description: "项目上下文收集节点规范——读取原始需求文档、技术栈说明和现有实现资产"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "输出架构方案"
+      - "输出 constraints 或 optimization function"
+      - "编写代码"
+      - "替用户裁决需求"
+  content: |
+    # Gather Project Context Node
+
+    本节点是 system-architecture 工作流的前置步骤。目标是把项目中的原始文档和现有实现资产
+    收集为结构化的 `project_analysis`，让后续架构节点能基于完整的项目上下文做决策。
+
+    ## 必须读取的文件
+
+    按以下优先级读取项目文档（使用 Read 工具）：
+
+    0. **final_requirement（如可用）**: 如果上下文中提供了 final_requirement，
+       先 Read 其中的"原始文档来源"章节，获取已记录的文档路径清单，
+       避免重复搜索。然后按清单逐份 Read 原始文档。
+    1. **原始产品需求文档**: `doc/requirement/` 目录下所有 `.md` 文件
+       - 这是需求理解工作流产出的 `final_requirement` 的原始输入
+       - 包含完整的页面结构、字段定义、业务规则、数据口径
+       - 如果已在步骤 0 中通过 final_requirement 的引用读取过，可跳过
+    2. **项目 README**: `README.md`
+       - 已确定的技术栈选型、核心链路、项目结构
+    3. **开发指引**: `AGENTS.md`、`CLAUDE.md`
+       - 项目约定和开发环境信息
+
+    ## 必须探索的代码资产（如存在）
+
+    使用 Glob 检查以下目录是否存在，存在则深入读取：
+
+    4. **现有数据模型**: `backend/app/models/` — SQLAlchemy ORM 模型定义
+    5. **现有 API 路由**: `backend/app/api/` — FastAPI 路由和接口契约
+    6. **现有数据库迁移**: `backend/alembic/versions/` — 数据库 schema 变更历史
+    7. **现有前端页面**: `frontend/src/pages/` — 已实现的页面和组件
+
+    ## 输出产物 project_analysis 必须包含
+
+    ```markdown
+    # Project Analysis
+
+    ## 1. 原始产品需求摘要
+    - 产品定位和一句话描述
+    - 核心业务流程
+    - 页面信息架构（列出所有页面和页面目标）
+    - 核心业务对象和字段需求
+    - 关键业务规则和口径
+    - 非功能需求
+    - 明确的一期范围和一期不做事项
+
+    ## 2. 已确定技术栈
+    - 后端框架、数据库、缓存、消息队列
+    - 前端框架和组件库
+    - 基础设施（容器化、CI/CD）
+    - 已确定不用的技术
+
+    ## 3. 现有数据模型
+    - 如存在 ORM 模型：列出所有实体、核心字段、关系
+    - 如存在迁移文件：总结当前 schema 版本和关键变更
+    - 如不存在代码资产：明确标注"尚无实现"，并给出需求文档中隐含的数据对象清单
+
+    ## 4. 现有 API 接口
+    - 如存在路由定义：列出端点、方法、入参出参
+    - 如不存在：标注"尚无实现"
+
+    ## 5. 现有前端页面
+    - 如存在页面组件：列出页面路径和核心功能
+    - 如不存在：标注"尚无实现"
+
+    ## 6. 差距分析
+    - 需求文档定义的能力 vs 现有实现的覆盖情况
+    - 关键缺口列表
+    - 现有实现中可能与需求冲突的约束
+    ```
+
+    ## 判断标准
+
+    - `done`: 已阅读全部可用文档，产物完整覆盖所有维度。
+    - `blocked`: 关键文档缺失或无法读取，且无法继续。
+    - `fail`: 发现根本性冲突或不可调和的输入矛盾。

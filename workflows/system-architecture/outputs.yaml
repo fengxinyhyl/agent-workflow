@@ -1,4 +1,10 @@
 outputs:
+  project_analysis:
+    type: markdown
+    description: "原始产品需求摘要、已确定技术栈、现有数据模型/API/页面分析和差距分析"
+    produced_by:
+      - gather_context
+
   architecture_drivers:
     type: markdown
     description: "业务目标、技术目标、关键用例、数据/集成驱动因素和显式化隐含假设"
