@@ -383,5 +383,46 @@ def _parse_task_result_text(text: str) -> TaskResult | None:
             end = text.index("```", start)
             return TaskResult.from_json(text[start:end].strip())
         except (ValueError, json.JSONDecodeError):
-            return None
+            # JSON 块解析失败（常见原因：模型用 [...] 截断长数组）
+            # 回退到正则提取关键字段，构造最小可用 TaskResult
+            return _extract_task_result_fallback(text, start, end)
+
+    return None
+
+
+def _extract_task_result_fallback(
+    text: str, json_start: int, json_end: int
+) -> TaskResult | None:
+    """从截断/损坏的 JSON 块中用正则提取 decision/status/summary。
+
+    当模型在 ```json``` 块中使用 [...] 等占位符截断长数组时，
+    json.loads 会失败。此函数回退到逐字段正则提取。
+    """
+    import re
+
+    json_text = text[json_start:json_end].strip()
+
+    def _extract_str(key: str, default: str = "") -> str:
+        m = re.search(r'"' + key + r'"\s*:\s*"((?:[^"\\]|\\.)*)"', json_text)
+        if m:
+            return m.group(1)
+        return default
+
+    decision = _extract_str("decision", "done")
+    status = _extract_str("status", "success")
+    summary = _extract_str("summary", "")
+    task_id = _extract_str("task_id", "")
+    state = _extract_str("state", "")
+
+    # 即使只提取到 decision，也值得返回
+    if decision:
+        return TaskResult(
+            schema_version=1,
+            task_id=task_id,
+            state=state,
+            status=status,
+            decision=decision,
+            summary=summary,
+        )
+
     return None
