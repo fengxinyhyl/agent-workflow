@@ -67,7 +67,7 @@ def read_log(run_id: str, summary: bool = False, run_root: str | None = None) ->
     """
     # 查找 events.jsonl
     if run_root is None:
-        run_root = os.path.join("doc", "runs", run_id)
+        run_root = os.path.join("docs", "runs", run_id)
     log_path = os.path.join(run_root, "logs", "events.jsonl")
 
     if not os.path.exists(log_path):

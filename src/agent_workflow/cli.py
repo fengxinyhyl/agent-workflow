@@ -24,7 +24,7 @@ def _find_run_root(run_id: str, project_root: str | None = None, run_root_hint: 
     """根据 run_id 发现 run_root。
 
     发现优先级：
-    1. run_root_hint 显式指定（如 --run-root doc/ → {project_root}/doc/{run_id}/）
+    1. run_root_hint 显式指定（如 --run-root docs/ → {project_root}/docs/{run_id}/）
     2. project_root + run_index.json 查找
     3. cwd + run_index.json 查找
     4. cwd + .agent-workflow/runs/<run_id>/
@@ -67,7 +67,7 @@ def _find_run_root(run_id: str, project_root: str | None = None, run_root_hint: 
 
     # 4. 默认路径
     for root in search_roots:
-        default = os.path.join(root, "doc", "runs", run_id)
+        default = os.path.join(root, "docs", "runs", run_id)
         if os.path.exists(default):
             return default
 
@@ -397,6 +397,8 @@ def cmd_retry(args):
     skills_dir = None
     if dispatch:
         workflow_path = getattr(args, 'workflow', None)
+        if workflow_path:
+            workflow_path = os.path.abspath(workflow_path)
         # 如果未显式指定 -w，尝试从快照重建 workflow 名称，然后在 project_root 下搜索
         if not workflow_path or not os.path.exists(workflow_path):
             project_root = getattr(args, 'project_root', None) or "."
@@ -594,7 +596,7 @@ def build_parser():
     p.add_argument("--topic", "-t", default="",
                    help="任务名称（用于 run 目录命名，如 260612_project_create）")
     p.add_argument("--project-root", "-p", help="项目根目录（默认当前目录）")
-    p.add_argument("--run-root", help="运行产物根目录（默认 {project_root}/doc/runs）")
+    p.add_argument("--run-root", help="运行产物根目录（默认 {project_root}/docs/runs）")
     p.add_argument("--agents", help="agents YAML 路径（默认自动发现 workflow 同目录下的 agents.yaml）")
     p.add_argument("--skills-dir", help="skills 目录（默认自动发现 workflow 同目录下的 skills/）")
     p.add_argument("--mock-script", help="mock decision 脚本 YAML（默认自动发现 workflow 同目录下的 mock_script.yaml，仅 mock 模式生效）")

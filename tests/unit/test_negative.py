@@ -196,9 +196,9 @@ class TestCancelFile:
     def test_cancel_run_writes_file(self):
         """cancel_run 写入取消文件。"""
         with tempfile.TemporaryDirectory() as tmpdir:
-            run_root = os.path.join(tmpdir, "doc", "runs", "run_test")
+            run_root = os.path.join(tmpdir, "docs", "runs", "run_test")
             # 需要替换全局路径 — 使用 patch 方式
-            # cancel_run 硬编码路径 doc/runs/<run_id>/cancelled
+            # cancel_run 硬编码路径 docs/runs/<run_id>/cancelled
             # 此处测试 cancel_run 在 default 路径的行为
             result = cancel_run("test_cancel_001", reason="测试取消")
             assert result is True

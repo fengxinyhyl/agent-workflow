@@ -97,7 +97,7 @@ class Runner:
         # 运行根目录
         if run_root is None:
             run_root = os.path.join(
-                self.project_root, "doc", "runs"
+                self.project_root, "docs", "runs"
             )
         elif not os.path.isabs(run_root):
             # 相对路径基于 project_root 解析
@@ -150,7 +150,7 @@ class Runner:
         然后调用 continue_from_gate() 继续执行。
 
         Args:
-            run_root: 既有 run 的目录路径（如 doc/runs/run_xxx/）
+            run_root: 既有 run 的目录路径（如 docs/runs/run_xxx/）
             workflow: WorkflowConfig 实例
             goal: 工作流目标（空则从 context 读取）
             project_root: 项目根目录
@@ -1301,7 +1301,7 @@ def cancel_run(
     run_root 发现优先级：
     1. --run-root 显式指定
     2. --project-root + run_index.json 查找
-    3. cwd-relative doc/runs/<run_id>/
+    3. cwd-relative docs/runs/<run_id>/
 
     P0 实现：设置取消标记文件。
     Runner 主循环每轮检查此文件，发现后进入 cancelled 状态。
@@ -1323,10 +1323,10 @@ def cancel_run(
             except (json.JSONDecodeError, IOError):
                 pass
         if not found:
-            cancel_path = os.path.join(project_root, "doc", "runs", run_id, "cancelled")
+            cancel_path = os.path.join(project_root, "docs", "runs", run_id, "cancelled")
     else:
         # 默认：cwd-relative
-        cancel_path = os.path.join("doc", "runs", run_id, "cancelled")
+        cancel_path = os.path.join("docs", "runs", run_id, "cancelled")
 
     try:
         os.makedirs(os.path.dirname(cancel_path), exist_ok=True)
