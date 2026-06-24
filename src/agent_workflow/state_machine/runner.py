@@ -667,8 +667,12 @@ class Runner:
         Blocking errors: schema_version < 1, 缺少必需字段, execution metadata 缺失,
                          artifact staging 文件不存在, artifact 路径逃逸
         Warnings: 无效 status, 无效 decision, decision 不在 allowed_decisions
+
+        Side effect: 将完整校验结果保存到 self._last_validation_result，
+        供 ValidatorFinished 事件读取具体 errors。
         """
         has_blocking = False
+        all_errors: list[str] = []
         all_warnings: list[str] = []
 
         # 获取 state 的 allowed_decisions
@@ -687,6 +691,7 @@ class Runner:
 
             if validation_result.errors:
                 has_blocking = True
+                all_errors.extend(validation_result.errors)
             if validation_result.warnings:
                 all_warnings.extend(validation_result.warnings)
         except ImportError:
@@ -726,7 +731,7 @@ class Runner:
                 if ar.errors:
                     # artifact 文件缺失视为 blocking
                     has_blocking = True
-                    all_warnings.extend(ar.errors)
+                    all_errors.extend(ar.errors)
                 if ar.warnings:
                     all_warnings.extend(ar.warnings)
         except ImportError:
@@ -754,16 +759,22 @@ class Runner:
                     )
                     if not staging_ok:
                         has_blocking = True
-                        all_warnings.append(
+                        all_errors.append(
                             f"staging 路径逃逸: {artifact.staging_path}"
                         )
                     if not artifact_ok:
                         has_blocking = True
-                        all_warnings.append(
+                        all_errors.append(
                             f"artifact 路径逃逸: {artifact.artifact_path}"
                         )
         except ImportError:
             pass
+
+        # 保存完整校验结果供 ValidatorFinished 事件使用
+        self._last_validation_result = type('_VR', (), {
+            'errors': all_errors,
+            'warnings': all_warnings,
+        })()
 
         return has_blocking, all_warnings
 

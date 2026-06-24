@@ -288,11 +288,13 @@ class CodexCLI(BaseAgent):
     ) -> TaskResult:
         """解析 Codex JSONL 输出。
 
-        1. 扫描 agent_message 事件，从中提取 TaskResult
-        2. Fallback: 全局搜索 TaskResult
-        3. 最终 fallback: exit_code 摘要
+        1. 扫描全部 agent_message 事件，从最后一条（含完整 TaskResult）优先解析
+        2. 若最后一条未命中，反向遍历所有 agent_message 尝试提取 TaskResult
+        3. Fallback: 全局搜索 TaskResult
+        4. 最终 fallback: exit_code 摘要
         """
-        # 第一步：在 JSONL 流中查找 agent_message（对齐 legacy parse_codex_stream）
+        # 第一步：收集全部 agent_message 文本，从最后一条开始尝试提取 TaskResult
+        agent_messages: list[str] = []
         for line in stdout.splitlines():
             try:
                 event = json.loads(line)
@@ -300,19 +302,21 @@ class CodexCLI(BaseAgent):
                 continue
             item = event.get("item", {})
             if item.get("type") == "agent_message" and item.get("text"):
-                nested = SimpleNamespace(
-                    returncode=0,
-                    stdout=item["text"],
-                    stderr=stderr,
-                )
-                return self._parse_output_fallback(state_name, nested, agent_input)
+                agent_messages.append(item["text"])
 
-        # 第二步：fallback 到全局搜索
+        # 反向遍历：最后一条最可能包含完整 TaskResult
+        for text in reversed(agent_messages):
+            parsed = _parse_task_result_text(text)
+            if parsed is not None:
+                return parsed
+
+        # 第二步：fallback 到全局搜索（兼容非 agent_message 的输出）
         task_result = _parse_task_result_text(stdout)
         if task_result is not None:
             return task_result
 
-        # 第三步：最终 fallback
+        # 第三步：最终 fallback（使用最后一条 agent_message 作为摘要）
+        last_text = agent_messages[-1] if agent_messages else (stdout[:500] if stdout else "codex 完成")
         return TaskResult(
             schema_version=1,
             task_id=state_name,
@@ -320,7 +324,7 @@ class CodexCLI(BaseAgent):
             agent=self.name,
             status="success",
             decision="done",
-            summary=stdout[:500] if stdout else "codex 完成",
+            summary=last_text[:500] if last_text else "codex 完成",
             execution=ExecutionMetadata(
                 started_at=_now_iso(),
                 finished_at=_now_iso(),

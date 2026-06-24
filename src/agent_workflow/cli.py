@@ -397,8 +397,42 @@ def cmd_retry(args):
     skills_dir = None
     if dispatch:
         workflow_path = getattr(args, 'workflow', None)
+        # 如果未显式指定 -w，尝试从快照重建 workflow 名称，然后在 project_root 下搜索
+        if not workflow_path or not os.path.exists(workflow_path):
+            project_root = getattr(args, 'project_root', None) or "."
+            wf_name = None
+            try:
+                from .context.run_context import RunContext
+                ctx = RunContext.load(run_root)
+                snapshot = ctx.workflow_variables.get("_workflow_snapshot", {})
+                wf_name = snapshot.get("name", "")
+            except Exception:
+                pass
+
+            if wf_name:
+                import glob as _glob
+                candidates = [
+                    os.path.join(project_root, "workflows", wf_name, "workflow.yaml"),
+                    os.path.join(project_root, ".agent-workflow", "workflows", wf_name, "workflow.yaml"),
+                ]
+                for candidate in candidates:
+                    if os.path.exists(candidate):
+                        workflow_path = candidate
+                        break
+                if not workflow_path or not os.path.exists(workflow_path):
+                    found = _glob.glob(os.path.join(project_root, f"**/{wf_name}/workflow.yaml"), recursive=True)
+                    if found:
+                        workflow_path = found[0]
+
+            if workflow_path and os.path.exists(workflow_path):
+                safe_print(f"[*] 快照恢复 workflow: {workflow_path}")
+            else:
+                safe_print("[WARN] 未找到 workflow 文件，将使用 mock agent（产物为空壳）")
+
         if workflow_path and os.path.exists(workflow_path):
             safe_print(f"[*] 自动发现 agents/skills: {os.path.dirname(workflow_path)}")
+            # 确保 _discover_agents 能通过 args.workflow 定位 agents.yaml
+            args.workflow = workflow_path
             try:
                 agents_dict, skills_dir, _ = _discover_agents(args)
             except Exception:
