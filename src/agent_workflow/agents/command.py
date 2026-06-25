@@ -60,10 +60,10 @@ class CommandAgent(BaseAgent):
                 summary="命令为空",
             )
 
-        # 校验命令安全性
+        # 校验命令安全性（传入 list 形式，不经过 shell 解析，更安全）
         try:
             from ..validators.command import validate_command
-            validation = validate_command(str(cmd), allow_write=True)
+            validation = validate_command(cmd, allow_write=True)
             if not validation.passed:
                 return self._create_task_result(
                     agent_input.task.name, state_name,

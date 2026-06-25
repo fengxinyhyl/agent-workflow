@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-通用 AI Agent 编排引擎。通过 YAML 配置驱动状态机，调度多个 AI Agent（Claude CLI、Codex CLI、Mock）按预定义工作流协作。支持长任务运行、可观测性、产物流管理、断点续跑。
+通用 AI Agent 编排引擎。通过 YAML 配置驱动状态机，调度多个 AI Agent（Claude CLI、Codex CLI、Mock）按预定义工作流协作。支持可观测性、产物流管理、断点续跑。
 
 ## 核心命令
 
@@ -91,7 +91,6 @@ src/agent_workflow/
   validators/              # TaskResult / Artifact / Repo / Command 校验器
   observability/           # EventBus、ConsoleSink、JSONLSink、Heartbeat、status、explain
   context/                 # RunContext（可序列化到 workflow_state.json，支持断点续跑）+ AgentInput
-  long_task/               # 长任务 MVP：WorkflowRun / WorkItem / DependencyGraph / EventLog / StateStore / QueueRunner
   state/                   # 状态持久化与锁
 ```
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone, timedelta
 from typing import Any
@@ -138,18 +139,48 @@ class RunContext:
         return cls.from_dict(json.loads(json_str))
 
     def save(self):
-        """保存到 workflow_state.json。"""
+        """原子保存到 workflow_state.json。
+
+        先写临时文件再 os.replace 原子替换，避免写一半进程崩溃留下损坏的
+        workflow_state.json，破坏断点续跑。
+        """
         path = os.path.join(self.run_root, "workflow_state.json")
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(self.to_json())
+        dir_name = os.path.dirname(path)
+        os.makedirs(dir_name, exist_ok=True)
+
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=".workflow_state.", suffix=".tmp", dir=dir_name
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(self.to_json())
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+        except BaseException:
+            # 失败时清理临时文件，不留垃圾
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            raise
 
     @classmethod
     def load(cls, run_root: str) -> "RunContext":
-        """从 workflow_state.json 加载。"""
+        """从 workflow_state.json 加载。
+
+        文件损坏（JSON 解析失败）时抛出带上下文的 ValueError，便于定位是哪个
+        run 的状态文件损坏，而非裸 JSONDecodeError 冒泡。
+        """
         path = os.path.join(run_root, "workflow_state.json")
         with open(path, "r", encoding="utf-8") as f:
-            return cls.from_json(f.read())
+            raw = f.read()
+        try:
+            return cls.from_json(raw)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"workflow_state.json 损坏，无法解析（{path}）: {e}"
+            ) from e
 
     @classmethod
     def create(

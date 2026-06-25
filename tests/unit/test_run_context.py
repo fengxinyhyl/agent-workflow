@@ -83,6 +83,36 @@ class TestRunContext:
             assert ctx2.run_id == ctx.run_id
             assert ctx2.state_history == ctx.state_history
 
+    def test_save_is_atomic_no_temp_leftover(self):
+        # 原子写成功后目录内不应残留 .tmp 临时文件
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_root = os.path.join(tmpdir, "runs", "run_atomic")
+            ctx = RunContext.create(
+                workflow_id="test", goal="测试", project_root=tmpdir,
+                run_id="run_atomic", run_root=run_root,
+            )
+            ctx.save()
+            ctx.save()  # 覆盖写一次，验证 os.replace 可重复
+            leftovers = [
+                f for f in os.listdir(run_root)
+                if f.startswith(".workflow_state.") and f.endswith(".tmp")
+            ]
+            assert leftovers == []
+            assert RunContext.load(run_root).run_id == "run_atomic"
+
+    def test_load_corrupted_raises_value_error(self):
+        # 损坏的 JSON 应抛带路径上下文的 ValueError，而非裸 JSONDecodeError
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_root = os.path.join(tmpdir, "runs", "run_bad")
+            os.makedirs(run_root, exist_ok=True)
+            with open(
+                os.path.join(run_root, "workflow_state.json"),
+                "w", encoding="utf-8",
+            ) as f:
+                f.write("{not valid json")
+            with pytest.raises(ValueError, match="损坏"):
+                RunContext.load(run_root)
+
     def test_workflow_variables(self):
         ctx = RunContext.create(
             workflow_id="test", goal="test", project_root="/tmp",

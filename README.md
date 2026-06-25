@@ -1,6 +1,6 @@
 # Agent Workflow
 
-通用 AI Agent 编排引擎。通过 **纯 YAML 配置** 驱动状态机，调度多个 AI Agent（Claude、Codex、DeepSeek）按预定义工作流协作。支持长任务运行、可观测性、产物流管理、断点续跑。
+通用 AI Agent 编排引擎。通过 **纯 YAML 配置** 驱动状态机，调度多个 AI Agent（Claude、Codex、DeepSeek）按预定义工作流协作。支持可观测性、产物流管理、断点续跑。
 
 ---
 
@@ -967,7 +967,6 @@ src/agent_workflow/
   observability/           # EventBus、ConsoleSink、JSONLSink、Heartbeat、status、explain
   context/                 # RunContext（可序列化到 workflow_state.json，支持断点续跑）+ AgentInput
   state/                   # 状态持久化与锁
-  long_task/               # 长任务：WorkflowRun / WorkItem / DependencyGraph / EventLog / StateStore
 workflows/                 # Workflow 包（YAML 配置 + skills）
   standard-dev/            # 标准开发全链路
   spec-dev/                # 需求驱动开发（条件回流）
