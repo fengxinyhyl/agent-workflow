@@ -55,7 +55,7 @@ def _find_run_root(run_id: str, project_root: str | None = None, run_root_hint: 
     search_roots.append(os.path.abspath("."))
 
     for root in search_roots:
-        index_path = os.path.join(root, "doc", "run_index.json")
+        index_path = os.path.join(root, "docs", "run_index.json")
         if os.path.exists(index_path):
             try:
                 with open(index_path, "r", encoding="utf-8") as f:

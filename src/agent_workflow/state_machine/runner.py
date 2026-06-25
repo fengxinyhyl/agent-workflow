@@ -548,7 +548,7 @@ class Runner:
 
         供 cross-cwd cancel CLI 发现 run_root。
         """
-        index_dir = os.path.join(self.project_root, "doc")
+        index_dir = os.path.join(self.project_root, "docs")
         os.makedirs(index_dir, exist_ok=True)
         index_path = os.path.join(index_dir, "run_index.json")
 
@@ -1311,7 +1311,7 @@ def cancel_run(
         cancel_path = os.path.join(run_root, "cancelled")
     elif project_root:
         # 尝试从 run_index.json 查找
-        index_path = os.path.join(project_root, "doc", "run_index.json")
+        index_path = os.path.join(project_root, "docs", "run_index.json")
         found = False
         if os.path.exists(index_path):
             try:
