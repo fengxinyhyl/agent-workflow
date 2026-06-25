@@ -46,7 +46,7 @@ tasks:
       8. 缺失信息
       9. 易产生误解的点
       10. 可验收的需求表述
-    agent: cc-deepseek
+    agent: deepseek
     input:
       - goal
       - project_context
@@ -76,7 +76,7 @@ tasks:
       8. 缺失信息
       9. 易产生误解的点
       10. 可验收的需求表述
-    agent: cc-opus
+    agent: claude
     input:
       - goal
       - project_context
@@ -131,7 +131,7 @@ tasks:
       3. 是否把方案设计混入需求理解
       4. 是否存在不可验收、不可验证或自相矛盾的表述
       5. 需要用户澄清的问题
-    agent: cc-opus
+    agent: claude
     input:
       - goal
       - project_context
@@ -183,7 +183,7 @@ tasks:
       3. 是否把方案设计混入需求理解
       4. 是否存在不可验收、不可验证或自相矛盾的表述
       5. 需要用户澄清的问题
-    agent: cc-deepseek
+    agent: deepseek
     input:
       - goal
       - project_context
@@ -238,7 +238,7 @@ tasks:
       3. Optional Questions: 可延后确认的问题
       4. 每个问题关联的分歧项或缺失信息
       5. 建议的回答格式
-    agent: cc-opus
+    agent: claude
     input:
       - consensus_report
       - project_context
@@ -270,7 +270,7 @@ tasks:
       3. 建议的回答格式
       4. 统一的用户回答模板
       5. 继续流程指引（/req-understand continue <run_id>）
-    agent: cc-opus
+    agent: claude
     input:
       - clarification_questions
       - consensus_report
@@ -303,7 +303,7 @@ tasks:
       9. 未确认分歧
       10. 待用户回答的问题
       11. 可交给后续 PRD / spec-dev 的需求输入摘要
-    agent: cc-opus
+    agent: claude
     input:
       - understanding_deepseek
       - understanding_claude

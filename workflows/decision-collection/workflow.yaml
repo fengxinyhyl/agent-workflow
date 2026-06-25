@@ -1,0 +1,358 @@
+# decision-collection Workflow
+# 指定 Markdown 文件 -> 抽取待裁决项 -> 发布到飞书电子表格 -> 人工裁决 gate
+# -> 回收电子表格结果 -> 生成最终裁决包。
+#
+# 本 workflow 不自动回写正式需求、架构、字段映射或模块拆解文档。
+
+name: decision-collection
+version: "1"
+description: |
+  面向需求、架构、数据字段等人工裁决事项的结构化协作工作流。
+  输入必须显式指定 Markdown 文件、飞书电子表格和材料上传目录。
+  工作流发布本批次裁决子表后暂停，人工在飞书电子表格中填写裁决结果；
+  继续后回收结果并生成可供后续模型读取的裁决包。
+
+initial_state: collect_inputs
+
+guards:
+  max_visits: 2
+  max_duration_minutes: 180
+  max_retries: 2
+  on_guard_failed: failed
+
+terminal_states:
+  - done
+  - failed
+  - cancelled
+
+required_skills:
+  - agent-workflow-lifecycle
+
+tasks:
+  collect_inputs:
+    instruction: |
+      读取 goal 和 project_context，整理本次裁决批次输入清单。
+
+      必须只接受用户显式指定的 Markdown 文件或文件列表；禁止扫描整个 docs/
+      自动发现问题。输入中还必须包含飞书电子表格 URL/token，以及用于上传原始
+      Markdown 文件的飞书云空间文件夹 URL/token。
+
+      输出 input_inventory，必须包含:
+      1. run/topic 摘要
+      2. 显式输入文件列表，逐项记录相对路径、是否存在、用途说明
+      3. 飞书电子表格定位信息（URL 路径为 /sheets/ 形态）
+      4. 原始 Markdown 上传目录定位信息
+      5. 缺失或不可继续的阻断项
+
+      判断标准:
+      - done: 输入文件、电子表格、上传目录都已明确，且文件存在。
+      - blocked: 缺少文件列表、电子表格或上传目录，或指定文件不存在。
+      - fail: 输入越权、要求扫描未指定目录，或要求读取敏感文件。
+    agent: codex
+    input:
+      - goal
+      - project_context
+    output: input_inventory
+    skills:
+      - decision-input-collector
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  extract_decision_items:
+    instruction: |
+      基于 input_inventory 中列出的文件，抽取需要人工裁决的事项。
+
+      裁决明细表只允许 5 个字段: 裁决项ID、待裁决问题、候选方案、最终结论、状态
+      原始材料链接不写入明细表字段。
+
+      抽取规则:
+      1. 只抽取必须人工定夺、会影响需求/架构/数据字段/验收口径的事项。
+      2. 不抽取普通 TODO、实现任务、无争议事实或已明确裁决的历史结论。
+      3. 每条裁决项必须能让负责人只看问题和候选方案就能填写最终结论。
+      4. 候选方案中可以写"推荐: ..."，但不得新增独立推荐字段。
+      5. 状态初始值统一为"待裁决"。
+
+      输出 decision_items，使用 Markdown 表格，表头必须严格为:
+      | 裁决项ID | 待裁决问题 | 候选方案 | 最终结论 | 状态 |
+
+      判断标准:
+      - done: 已产出可发布的裁决项表；即使没有裁决项，也要说明为空批次原因。
+      - blocked: 指定文件内容不足，无法判断是否存在裁决项。
+      - fail: 产物包含非 5 字段表头，或引入未指定文件。
+    agent: claude
+    input:
+      - input_inventory
+    output: decision_items
+    skills:
+      - decision-item-extractor
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  review_items:
+    instruction: |
+      审查 decision_items 是否适合发布到飞书电子表格。
+
+      审查重点:
+      1. 字段是否严格只有 5 个: 裁决项ID、待裁决问题、候选方案、最终结论、状态。
+      2. 是否误把普通开发任务、已裁决事实或解释性背景放入裁决表。
+      3. 待裁决问题是否可回答，候选方案是否清楚。
+      4. 是否遗漏明显阻断项。
+      5. 是否保留原 Markdown 材料作为批次材料，而不是写入明细字段。
+
+      输出 reviewed_decision_items，包含:
+      - Review verdict: approve / revise / reject
+      - 必须修正的问题
+      - 可发布的 5 字段裁决表
+      - 发布注意事项
+
+      判断标准:
+      - approve: 可以发布到电子表格。
+      - revise: 字段、问题质量或候选方案需要修订。
+      - reject: 输入不适合进入裁决收集流程。
+      - fail: 审查无法完成。
+      - blocked: 缺少 decision_items。
+    agent: deepseek
+    input:
+      - decision_items
+      - input_inventory
+    output: reviewed_decision_items
+    skills:
+      - decision-item-review
+    allowed_decisions:
+      - approve
+      - revise
+      - reject
+      - fail
+      - blocked
+
+  publish_to_lark_sheets:
+    instruction: |
+      根据 reviewed_decision_items 发布本批次飞书电子表格协作材料。
+
+      发布职责:
+      1. 在用户提供的电子表格中新建一个子表（tab），命名格式为 `<run_id>_裁决明细`。
+      2. 明细子表只写入 5 列: 裁决项ID、待裁决问题、候选方案、最终结论、状态。
+      3. 在电子表格中维护或更新"裁决批次索引"子表，记录 run_id/topic、
+         明细子表链接、状态、输入文件清单、原始材料链接和本地产物路径。
+      4. 上传本次指定的原始 .md 文件到用户提供的飞书云空间材料目录。
+      5. 原始 Markdown 文件链接写入批次索引和 lark_sheets_publish_packet，
+         不写入裁决明细子表字段。
+      6. 不自动新建分散的电子表格；缺少电子表格或上传目录时输出 blocked。
+
+      飞书操作要求:
+      - 电子表格读取使用 lark-cli sheets +workbook-info。
+      - 子表创建使用 lark-cli sheets +sheet-create。
+      - 数据写入使用 lark-cli sheets +csv-put（纯值批量写入，表头 + 数据行）。
+      - 数据读取校验使用 lark-cli sheets +csv-get。
+      - 原始 .md 文件上传使用 lark-cli markdown +create。
+      - 不读取或打印 .env、密钥、数据库凭证。
+      - 高风险写操作必须遵循 lark-cli 的确认门禁（先 --dry-run 预览 → 确认后加 --yes）。
+
+      输出 lark_sheets_publish_packet，必须包含:
+      1. 电子表格 URL/token 摘要
+      2. 本次明细子表名称和链接
+      3. 批次索引记录摘要
+      4. 原始 Markdown 材料链接列表
+      5. 人工填写说明
+      6. 继续命令示例
+
+      判断标准:
+      - done: 电子表格子表和材料链接已准备好，可等待人工裁决。
+      - blocked: 缺少权限、电子表格、上传目录或 lark-cli 授权。
+      - fail: 发布失败且无法恢复。
+    agent: codex
+    input:
+      - reviewed_decision_items
+      - input_inventory
+    output: lark_sheets_publish_packet
+    skills:
+      - lark-sheets-publisher
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  human_decision_gate:
+    instruction: |
+      基于 lark_sheets_publish_packet 生成面向用户的人工裁决等待说明。
+
+      本节点只生成说明并等待，不读取电子表格，不替用户填写最终结论。
+      Runner 会在本节点执行后暂停，等待外部通过 continue --approve 恢复。
+
+      输出 human_decision_request，必须包含:
+      1. 本批次电子表格裁决明细子表链接
+      2. 人工只需填写"最终结论"和"状态"
+      3. 状态可选值: 待裁决 / 已裁决 / 暂缓 / 作废
+      4. 继续前检查: 所有必须裁决项应填写最终结论且状态为已裁决
+      5. 原始材料链接区
+      6. continue 命令示例
+
+      判断标准:
+      - done: 等待说明已生成。
+      - fail: 无法生成等待说明。
+      - blocked: 缺少 lark_sheets_publish_packet。
+    agent: claude
+    input:
+      - lark_sheets_publish_packet
+    output: human_decision_request
+    skills:
+      - human-decision-gate
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  collect_sheets_results:
+    instruction: |
+      从 lark_sheets_publish_packet 指向的飞书电子表格裁决明细子表回收人工裁决结果。
+
+      回收校验:
+      1. 子表结构必须仍为 5 列: 裁决项ID、待裁决问题、候选方案、最终结论、状态。
+      2. 状态为"已裁决"的记录必须填写最终结论。
+      3. 状态为"待裁决"的记录视为未完成。
+      4. 状态为"暂缓"或"作废"的记录可进入 unresolved/void 列表，但不得伪装成已裁决。
+      5. 裁决项ID 不得重复。
+
+      输出 decision_results，必须包含:
+      - 已裁决清单
+      - 暂缓清单
+      - 作废清单
+      - 未完成清单
+      - 电子表格子表链接
+      - 原始材料链接
+      - 校验结论
+
+      判断标准:
+      - done: 所有必须裁决项均已回收，或暂缓/作废已有明确状态。
+      - blocked: 仍存在待裁决项、无权限读取电子表格、或子表结构被破坏。
+      - fail: 电子表格数据无法解析或裁决项ID 不可恢复。
+    agent: codex
+    input:
+      - lark_sheets_publish_packet
+    output: decision_results
+    skills:
+      - lark-sheets-result-collector
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  synthesize_decision_package:
+    instruction: |
+      基于 decision_results 生成最终裁决包。
+
+      不自动回写正式需求、架构、字段映射或模块拆解文档。
+      裁决包必须可被后续模型作为明确输入读取。
+
+      输出 decision_package，必须包含:
+      1. 批次摘要
+      2. 已裁决事项表
+      3. 暂缓/作废事项表
+      4. 未完成事项表，如无则写"无"
+      5. 原始材料链接区，放在文档底部
+      6. 后续可显式交给哪个 workflow 或文档修订任务使用
+
+      若需要导出 Excel，则要求在 Excel 明细表最后追加"原始材料链接"区；
+      但本 workflow 的主产物仍为 Markdown/JSON 风格裁决包。
+
+      判断标准:
+      - done: 裁决包完整、可追溯、无自动回写。
+      - blocked: decision_results 不完整。
+      - fail: 裁决包生成失败。
+    agent: claude
+    input:
+      - decision_results
+      - input_inventory
+      - lark_sheets_publish_packet
+    output: decision_package
+    skills:
+      - decision-package-synthesis
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+states:
+  collect_inputs:
+    task: collect_inputs
+    on:
+      done: extract_decision_items
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "整理指定文件、电子表格和材料上传目录"
+
+  extract_decision_items:
+    task: extract_decision_items
+    on:
+      done: review_items
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "抽取 5 字段裁决项"
+
+  review_items:
+    task: review_items
+    on:
+      approve: publish_to_lark_sheets
+      revise: extract_decision_items
+      reject: failed
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "审查裁决项是否可发布"
+
+  publish_to_lark_sheets:
+    task: publish_to_lark_sheets
+    on:
+      done: human_decision_gate
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "发布到飞书电子表格并上传原始 Markdown"
+
+  human_decision_gate:
+    task: human_decision_gate
+    on:
+      approve: collect_sheets_results
+      reject: failed
+    default: failed
+    gate: true
+    description: "等待人工在飞书电子表格中完成裁决"
+
+  collect_sheets_results:
+    task: collect_sheets_results
+    on:
+      done: synthesize_decision_package
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "回收并校验电子表格裁决结果"
+
+  synthesize_decision_package:
+    task: synthesize_decision_package
+    on:
+      done: done
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "生成最终裁决包"
+
+  done:
+    task: ""
+    terminal: true
+    description: "工作流完成"
+
+  failed:
+    task: ""
+    terminal: true
+    description: "工作流失败"
+
+  cancelled:
+    task: ""
+    terminal: true
+    description: "工作流取消"

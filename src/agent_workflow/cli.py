@@ -387,6 +387,19 @@ def cmd_retry(args):
         safe_print(f"[FAIL] 未找到运行: {args.run_id}")
         return 1
 
+    # project_root 恢复顺序：显式 -p > 快照 context.project_root > cwd。
+    # 不显式带 -p 时从快照恢复（如原 run 跑在 worktree，则续在同一 worktree），
+    # 不再降级成 "." —— 否则 cwd 漂移会导致搜不到 workflow/agents、执行目录跑偏。
+    effective_project_root = getattr(args, 'project_root', None) or None
+    if not effective_project_root:
+        try:
+            from .context.run_context import RunContext
+            effective_project_root = RunContext.load(run_root).project_root or None
+        except Exception:
+            effective_project_root = None
+    if effective_project_root:
+        safe_print(f"[*] project_root: {effective_project_root}")
+
     if dry_run:
         safe_print(f"[*] Dry-run 重试预览: run={args.run_id}, from={from_state or 'auto-detect'}")
     else:
@@ -401,7 +414,7 @@ def cmd_retry(args):
             workflow_path = os.path.abspath(workflow_path)
         # 如果未显式指定 -w，尝试从快照重建 workflow 名称，然后在 project_root 下搜索
         if not workflow_path or not os.path.exists(workflow_path):
-            project_root = getattr(args, 'project_root', None) or "."
+            project_root = effective_project_root or "."
             wf_name = None
             try:
                 from .context.run_context import RunContext
@@ -446,7 +459,7 @@ def cmd_retry(args):
         from_state=from_state,
         dry_run=dry_run,
         run_root=run_root,
-        project_root=getattr(args, 'project_root', None) or ".",
+        project_root=effective_project_root,
         agents=agents_dict,
         skills_dir=skills_dir,
     )

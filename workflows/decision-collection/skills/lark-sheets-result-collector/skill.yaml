@@ -1,0 +1,30 @@
+skill:
+  name: lark-sheets-result-collector
+  version: "1"
+  description: "从飞书电子表格回收裁决结果的规则"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    required_inputs:
+      - lark_sheets_publish_packet
+    forbidden_actions:
+      - "把待裁决项伪装成已裁决"
+      - "忽略重复裁决项ID"
+      - "自动回写正式项目文档"
+  content: |
+    # Lark Sheets Result Collector
+
+    回收时必须重新读取真实电子表格子表结构和记录。
+
+    读取方式:
+    - 使用 `lark-cli sheets +csv-get` 读取裁决明细子表。
+    - 使用 `lark-cli sheets +workbook-info` 确认子表存在。
+
+    校验规则:
+    - 表字段仍然必须是 5 字段（从 CSV 表头校验）。
+    - `状态=已裁决` 的记录必须有 `最终结论`。
+    - `状态=待裁决` 的记录进入未完成清单并输出 `blocked`。
+    - `状态=暂缓` 和 `状态=作废` 不算已裁决，但可以进入裁决包。
+    - `裁决项ID` 不得重复。

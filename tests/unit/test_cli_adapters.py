@@ -264,10 +264,23 @@ class TestWrapCommandForOS:
         assert result == ["python.exe", "script.py"]
 
     def test_windows_no_extension_not_wrapped(self, monkeypatch):
-        """无扩展名命令（python/claude/codex）不包裹。"""
+        """无扩展名命令经 PATH 解析后仍无 .cmd/.bat 扩展名时不包裹。
+
+        mock shutil.which 让其解析为无扩展名（或 .exe）真实路径，使断言与运行
+        机器的 PATH 无关——否则装了 npm 版 claude（claude.CMD）的机器会因真实
+        解析出 .cmd 而被正确包裹，导致本用例环境相关地失败。
+        """
         monkeypatch.setattr("os.name", "nt")
+        monkeypatch.setattr("shutil.which", lambda exe: "/usr/bin/claude")
         result = self._wrap(["claude", "-p", "hello"])
         assert result == ["claude", "-p", "hello"]
+
+    def test_windows_no_extension_resolved_to_cmd_wrapped(self, monkeypatch):
+        """无扩展名命令经 PATH 解析出 .cmd（如 npm 包装器）时需包裹。"""
+        monkeypatch.setattr("os.name", "nt")
+        monkeypatch.setattr("shutil.which", lambda exe: r"E:\node\claude.CMD")
+        result = self._wrap(["claude", "-p", "hello"])
+        assert result == ["cmd", "/c", "claude", "-p", "hello"]
 
     def test_non_windows_no_wrap(self, monkeypatch):
         """非 Windows 平台不包裹。"""

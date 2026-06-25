@@ -59,7 +59,7 @@ tasks:
       - done: 需求理解清楚，Step 拆分完整且可审查。
       - blocked: 缺少关键上下文，无法可靠拆分。
       - fail: 需求本身不可执行或与安全边界冲突。
-    agent: cc-opus
+    agent: claude
     input:
       - goal
       - project_context
@@ -93,7 +93,7 @@ tasks:
 
       注意: 本 workflow 是单向流程。即使 verdict 是 advise，也不回流到 plan；
       下一节点会把 review 转成最终建议。
-    agent: cc-deepseek
+    agent: deepseek
     input:
       - requirements_plan
       - project_context
@@ -123,7 +123,7 @@ tasks:
       - done: 建议完整，可作为后续计划或执行工作流的输入。
       - blocked: review 信息不足，无法形成可靠建议。
       - fail: 需求拆分不可采纳，且无法给出可执行下一步。
-    agent: cc-opus
+    agent: claude
     input:
       - requirements_plan
       - breakdown_review

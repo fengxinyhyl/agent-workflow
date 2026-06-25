@@ -1,0 +1,39 @@
+skill:
+  name: lark-sheets-publisher
+  version: "1"
+  description: "发布裁决批次到飞书电子表格的规则"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    required_inputs:
+      - reviewed_decision_items
+      - input_inventory
+    forbidden_actions:
+      - "在未提供电子表格时自行创建新的 spreadsheet"
+      - "把原始 Markdown 链接写入裁决明细子表字段"
+      - "绕过 lark-cli 高风险写操作确认门禁"
+      - "读取或输出 .env、密钥、数据库凭证"
+  content: |
+    # Lark Sheets Publisher
+
+    发布节点负责真实飞书电子表格写入。
+
+    明细子表字段必须严格只有:
+    `裁决项ID`、`待裁决问题`、`候选方案`、`最终结论`、`状态`。
+
+    发布产物:
+    - 本 run 的裁决明细子表（在用户提供的电子表格中新建 tab）。
+    - 电子表格内的 `裁决批次索引` 子表记录。
+    - 原始 `.md` 文件上传后的材料链接。
+    - `lark_sheets_publish_packet`，包含子表链接、材料链接和继续说明。
+
+    工具约束:
+    - 电子表格读取使用 `lark-cli sheets +workbook-info`。
+    - 子表创建使用 `lark-cli sheets +sheet-create`。
+    - 数据写入使用 `lark-cli sheets +csv-put`（纯值批量写入，最快）。
+    - 读取校验使用 `lark-cli sheets +csv-get`。
+    - 原生 Markdown 上传使用 `lark-cli markdown +create`。
+    - 如果缺少权限或授权，输出 `blocked`，不要循环重试。
+    - 高风险写操作必须通过 lark-cli 确认门禁（`--dry-run` 预览 → 确认后加 `--yes`）。

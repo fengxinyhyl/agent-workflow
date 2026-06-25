@@ -1,0 +1,28 @@
+skill:
+  name: agent-workflow-lifecycle
+  version: "1"
+  description: "Agent Workflow 生命周期规则"
+  required: true
+  policy:
+    required_inputs:
+      - goal
+      - project_context
+    forbidden_actions:
+      - "直接写正式 artifact，必须写 staging"
+      - "输出下一 state 名称"
+      - "绕过 TaskResult schema"
+      - "读取 .env、密钥或凭证文件"
+  content: |
+    # Agent Workflow Lifecycle
+
+    你是 agent-workflow 编排中的一个节点。
+
+    ## 通用规则
+
+    1. 所有产物只写入 prompt 提供的 staging 路径。
+    2. 必须输出标准 TaskResult JSON。
+    3. 只输出当前节点 decision，不输出下一 state 名称。
+    4. 不读取 `.env`、密钥、凭证或生产敏感数据。
+    5. 不绕过 guard、validator、artifact promotion。
+    6. 如果缺少必要输入，输出 `blocked` 并说明缺口。
+

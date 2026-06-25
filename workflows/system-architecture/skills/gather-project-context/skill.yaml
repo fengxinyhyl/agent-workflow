@@ -25,7 +25,7 @@ skill:
     0. **final_requirement（如可用）**: 如果上下文中提供了 final_requirement，
        先 Read 其中的"原始文档来源"章节，获取已记录的文档路径清单，
        避免重复搜索。然后按清单逐份 Read 原始文档。
-    1. **原始产品需求文档**: `doc/requirement/` 目录下所有 `.md` 文件
+    1. **原始产品需求文档**: `docs/requirement/` 目录下所有 `.md` 文件
        - 这是需求理解工作流产出的 `final_requirement` 的原始输入
        - 包含完整的页面结构、字段定义、业务规则、数据口径
        - 如果已在步骤 0 中通过 final_requirement 的引用读取过，可跳过

@@ -1,0 +1,42 @@
+outputs:
+  input_inventory:
+    type: markdown
+    description: "本次裁决批次输入清单，包含指定 Markdown 文件、电子表格和材料上传目录"
+    produced_by:
+      - collect_inputs
+
+  decision_items:
+    type: markdown
+    description: "从指定 Markdown 文件抽取出的 5 字段待裁决项表"
+    produced_by:
+      - extract_decision_items
+
+  reviewed_decision_items:
+    type: markdown
+    description: "裁决项审查结果和可发布版本"
+    produced_by:
+      - review_items
+
+  lark_sheets_publish_packet:
+    type: markdown
+    description: "飞书电子表格发布结果、明细子表链接、批次索引和原始材料链接"
+    produced_by:
+      - publish_to_lark_sheets
+
+  human_decision_request:
+    type: markdown
+    description: "人工裁决 gate 暂停前的填写说明"
+    produced_by:
+      - human_decision_gate
+
+  decision_results:
+    type: markdown
+    description: "从飞书电子表格回收并校验后的裁决结果"
+    produced_by:
+      - collect_sheets_results
+
+  decision_package:
+    type: markdown
+    description: "最终裁决包，可作为后续需求/架构/字段文档修订输入"
+    produced_by:
+      - synthesize_decision_package

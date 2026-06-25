@@ -1,0 +1,33 @@
+# 产物流配置
+# 定义每个 state 的预期产物流名称和类型
+
+outputs:
+  plan_doc:
+    type: markdown
+    description: "实现计划文档"
+    produced_by:
+      - plan
+
+  review_doc:
+    type: markdown
+    description: "审查意见"
+    produced_by:
+      - review
+
+  execution_report:
+    type: markdown
+    description: "执行报告"
+    produced_by:
+      - implement
+
+  audit_report:
+    type: markdown
+    description: "审计报告"
+    produced_by:
+      - audit
+
+  summary_report:
+    type: markdown
+    description: "工作流总结报告"
+    produced_by:
+      - summary

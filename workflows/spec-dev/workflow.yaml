@@ -51,7 +51,7 @@ tasks:
       7. 预期产物 — 交付物清单
 
       只列计划，不写实现代码。
-    agent: cc-opus
+    agent: claude
     input:
       - goal
       - project_context
@@ -84,7 +84,7 @@ tasks:
       - reject: 计划或目标不可接受，终止
 
       输出 plan_review_doc，并在 TaskResult decision 中使用 approve / revise / reject。
-    agent: cc-deepseek
+    agent: deepseek
     input:
       - plan_doc:latest
       - plan_doc:all
@@ -116,7 +116,7 @@ tasks:
       3. 相对上一版 plan_doc 的关键变更说明
       后续节点会读取 plan_doc:latest 与 plan_refinement_doc:all，因此本节点不依赖多产物输出。
       使用 done 表示本轮修订完成。
-    agent: cc-opus
+    agent: claude
     input:
       - plan_doc:latest
       - plan_review_doc:latest
@@ -141,7 +141,7 @@ tasks:
       4. 如发现计划在执行中不成立，输出 blocked 并说明阻塞原因
 
       输出 execution_report 记录上述内容。
-    agent: codex
+    agent: deepseek
     input:
       - plan_doc:latest
       - plan_refinement_doc:all
@@ -174,7 +174,7 @@ tasks:
       - reject: 变更不可接受，终止
 
       输出 output_review_doc，并在 TaskResult decision 中使用 approve / revise / reject。
-    agent: cc-deepseek
+    agent: codex
     input:
       - plan_doc:latest
       - execution_report:latest
@@ -200,7 +200,7 @@ tasks:
 
       输出 output_refinement_doc，记录本轮回应、实际修改文件、
       执行命令和验证情况。使用 done 表示本轮修订完成。
-    agent: codex
+    agent: deepseek
     input:
       - plan_doc:latest
       - execution_report:latest
@@ -253,7 +253,7 @@ tasks:
       4. 测试结果
       5. 残余风险和后续建议
       6. 经验沉淀 — 本次流程中值得复用或改进的经验
-    agent: cc-opus
+    agent: claude
     input:
       - plan_doc:all
       - plan_review_doc:all

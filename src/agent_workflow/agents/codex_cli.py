@@ -381,14 +381,19 @@ def _parse_task_result_text(text: str) -> TaskResult | None:
             return TaskResult.from_dict(data)
 
     marker = "```json"
-    if marker in text:
+    search_from = 0
+    while marker in text[search_from:]:
         try:
-            start = text.index(marker) + len(marker)
+            start = text.index(marker, search_from) + len(marker)
             end = text.index("```", start)
-            return TaskResult.from_json(text[start:end].strip())
-        except (ValueError, json.JSONDecodeError):
-            # JSON 块解析失败（常见原因：模型用 [...] 截断长数组）
-            # 回退到正则提取关键字段，构造最小可用 TaskResult
+            json_text = text[start:end].strip()
+            data = json.loads(json_text)
+            if isinstance(data, dict) and data.get("schema_version", 0) >= 1:
+                return TaskResult.from_dict(data)
+            search_from = end + 3
+        except ValueError:
+            break
+        except json.JSONDecodeError:
             return _extract_task_result_fallback(text, start, end)
 
     return None

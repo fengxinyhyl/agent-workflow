@@ -1,0 +1,29 @@
+skill:
+  name: decision-item-review
+  version: "1"
+  description: "裁决项发布前审查规则"
+  policy:
+    allowed_decisions:
+      - approve
+      - revise
+      - reject
+      - fail
+      - blocked
+    required_inputs:
+      - decision_items
+    forbidden_actions:
+      - "直接发布到飞书 Base"
+      - "替人工填写最终结论"
+      - "把审查建议改写成最终裁决"
+  content: |
+    # Decision Item Review
+
+    审查目标是保证发布到飞书 Base 的表格足够少、足够清楚。
+
+    必查项:
+    - 表头是否严格为 `裁决项ID / 待裁决问题 / 候选方案 / 最终结论 / 状态`。
+    - 是否误加入普通开发任务、背景说明或已经裁决的事实。
+    - 每条问题是否能被人工直接裁决。
+    - 候选方案是否足够具体。
+    - 原始材料链接是否留在批次材料区，而不是明细表字段。
+

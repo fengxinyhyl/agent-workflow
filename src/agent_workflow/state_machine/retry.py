@@ -188,7 +188,7 @@ def retry_run(
     from_state: str | None = None,
     dry_run: bool = True,
     run_root: str | None = None,
-    project_root: str = ".",
+    project_root: str | None = None,
     agents: dict[str, Any] | None = None,
     skills_dir: str | None = None,
 ) -> dict[str, Any]:
@@ -199,7 +199,8 @@ def retry_run(
       from_state: 从哪个 state 开始重试（None = 自动检测中断点）
       dry_run: True = 只读预览，False = 真实执行
       run_root: 运行根目录（可选，默认从 .agent-workflow/runs/ 查找）
-      project_root: 项目根目录（用于 Runner 恢复）
+      project_root: 项目根目录（用于 Runner 恢复）。None 时回退到快照中的
+                    context.project_root（如原 run 跑在 worktree，则续在同一 worktree）。
       agents: Agent registry 字典（可选，不提供则 fallback 到 mock）
       skills_dir: Skills 目录路径（可选）
 

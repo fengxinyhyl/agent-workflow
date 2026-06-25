@@ -1,0 +1,31 @@
+skill:
+  name: decision-item-extractor
+  version: "1"
+  description: "从指定 Markdown 文件抽取 5 字段待裁决项"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    required_inputs:
+      - input_inventory
+    forbidden_actions:
+      - "新增来源位置、类别、裁决人、裁决说明、截止时间或回收校验字段"
+      - "把原始 Markdown 链接写入明细表字段"
+      - "抽取已明确裁决的历史结论作为新裁决项"
+  content: |
+    # Decision Item Extractor
+
+    裁决明细表必须严格只有 5 个字段:
+
+    | 裁决项ID | 待裁决问题 | 候选方案 | 最终结论 | 状态 |
+
+    字段含义:
+    - `裁决项ID`: 稳定编号，例如 `D-001`。
+    - `待裁决问题`: 问题本身，必要背景可以合并在同一单元格。
+    - `候选方案`: 可选项；推荐项写成 `推荐: ...`。
+    - `最终结论`: 初始为空，人工填写。
+    - `状态`: 初始为 `待裁决`。
+
+    禁止添加 `来源位置`、`类别`、`裁决人` 等额外字段。
+

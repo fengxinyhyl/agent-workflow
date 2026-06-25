@@ -1,10 +1,11 @@
 # Agent 配置
-# command 中的 {VAR} 占位符从 .env 文件或系统环境变量读取。
+# 本文件为纳入版本库的默认模板：命令使用通用默认（claude/codex），开箱即用。
+# 个人专用 wrapper（如 cc-opus/cc-deepseek）在本地未跟踪的 agents.yaml 中覆盖。
 
 agents:
   claude:
     provider: claude
-    command: "cc-opus"
+    command: "claude"
     cwd: "{project_root}"
     permission_mode: default
     allowed_tools: "Read,Grep,Glob,Write"
@@ -13,7 +14,7 @@ agents:
 
   deepseek:
     provider: claude
-    command: "cc-deepseek"
+    command: "claude"
     cwd: "{project_root}"
     permission_mode: default
     allowed_tools: "Read,Grep,Glob,Write"

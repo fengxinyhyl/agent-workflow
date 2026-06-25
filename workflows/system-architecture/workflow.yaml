@@ -38,7 +38,7 @@ tasks:
       系统性地收集项目中的原始文档和现有实现资产，产出结构化的 project_analysis。
 
       必须按优先级读取：
-      1. doc/requirement/ 下的原始产品需求文档（PRD）
+      1. docs/requirement/ 下的原始产品需求文档（PRD）
       2. README.md 了解技术栈和项目结构
       3. AGENTS.md / CLAUDE.md 了解项目约定
 
@@ -56,7 +56,7 @@ tasks:
       6. 差距分析（需求 vs 现有实现的覆盖情况和关键缺口）
 
       本节点不输出架构方案、constraints 或 optimization function。
-    agent: cc-opus
+    agent: claude
     input:
       - final_requirement
       - goal
@@ -84,7 +84,7 @@ tasks:
       5. Integration Drivers: 外部系统、集成点和边界上下文
       6. Implicit Assumptions: 必须显式化的隐含假设
       7. Driver Risks: 会显著影响架构的风险项
-    agent: cc-opus
+    agent: claude
     input:
       - project_analysis
       - final_requirement
@@ -113,7 +113,7 @@ tasks:
       5. Measurement / Verification: 每条约束如何被验证或评分
       6. Approval Required: 哪些约束若要 relaxation 必须显式审批
       7. Unresolved Constraint Questions: 仍需用户确认的问题
-    agent: cc-opus
+    agent: claude
     input:
       - project_analysis
       - architecture_drivers
@@ -154,7 +154,7 @@ tasks:
       10. 安全、权限、审计和隐私考虑
       11. 可观测性、部署、扩展和故障恢复策略
       12. 开放问题、风险和后续验证建议
-    agent: cc-opus
+    agent: claude
     input:
       - project_analysis
       - architecture_drivers
@@ -199,7 +199,7 @@ tasks:
       - reject: 方案方向或输入不可接受，终止
 
       输出 evaluation_report，并在 TaskResult decision 中使用 approve / revise / reject。
-    agent: cc-deepseek
+    agent: deepseek
     input:
       - project_analysis
       - architecture_drivers
@@ -243,7 +243,7 @@ tasks:
       6. 剩余风险和待确认问题
 
       使用 done 表示本轮冲突修订完成。
-    agent: cc-opus
+    agent: claude
     input:
       - project_analysis
       - architecture_drivers
@@ -291,7 +291,7 @@ tasks:
       Trade-offs:
       Final choice:
       Reversibility cost:
-    agent: cc-opus
+    agent: claude
     input:
       - project_analysis
       - architecture_drivers

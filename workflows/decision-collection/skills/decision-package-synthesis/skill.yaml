@@ -1,0 +1,27 @@
+skill:
+  name: decision-package-synthesis
+  version: "1"
+  description: "最终裁决包生成规则"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    required_inputs:
+      - decision_results
+    forbidden_actions:
+      - "自动修改 final_requirement、架构文档、字段映射或模块拆解"
+      - "丢弃暂缓、作废或未完成记录"
+      - "删除原始材料链接"
+  content: |
+    # Decision Package Synthesis
+
+    最终裁决包是后续 workflow 或文档修订任务的输入，不是自动回写操作。
+
+    必须包含:
+    - 批次摘要。
+    - 已裁决事项表。
+    - 暂缓/作废事项表。
+    - 未完成事项表；如果没有则写 `无`。
+    - 文档底部的原始材料链接区。
+    - 建议的后续显式输入方式。

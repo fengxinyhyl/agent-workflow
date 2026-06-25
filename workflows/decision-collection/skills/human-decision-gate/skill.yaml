@@ -1,0 +1,26 @@
+skill:
+  name: human-decision-gate
+  version: "1"
+  description: "人工裁决等待节点规则"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    required_inputs:
+      - lark_sheets_publish_packet
+    forbidden_actions:
+      - "替人工填写最终结论"
+      - "读取电子表格判断是否已经完成"
+      - "绕过人工暂停直接继续"
+  content: |
+    # Human Decision Gate
+
+    本节点只生成等待说明。Runner 会在本节点执行后暂停。
+
+    说明必须告诉用户:
+    - 打开本批次电子表格裁决明细子表。
+    - 只填写 `最终结论` 和 `状态`。
+    - 状态可选值为 `待裁决 / 已裁决 / 暂缓 / 作废`。
+    - 原始材料链接在说明文档底部。
+    - 填写完成后使用 `continue --approve` 恢复。

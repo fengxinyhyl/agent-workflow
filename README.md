@@ -21,6 +21,7 @@
 ### 核心能力
 
 - **YAML 驱动状态机**：无需写代码，一套 `workflow.yaml` 定义完整的 Agent 协作链路
+- **独立工作目录与并行隔离**：`--project-root` 为每个 run 指定独立工作目录，Agent 的执行目录（`cwd`）随之解析；配合 git worktree 可让多个 run 在各自工作树中并行执行、代码改动互不覆盖，`--run-root` 可将产物统一收口到指定目录
 - **多 Agent 编排**：支持 Claude CLI、Codex CLI、DeepSeek 等多个 Agent 在同一工作流中分工协作
 - **TaskResult 契约**：标准化 JSON 输出，Agent 通过 `decision` 字段驱动状态迁移（如 `done`、`approve`、`revise`、`reject`）
 - **Staging → Artifacts 两阶段**：Agent 输出先入暂存区，校验通过后才提升为正式产物流，保证产物可靠性

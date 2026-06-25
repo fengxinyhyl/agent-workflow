@@ -1,0 +1,25 @@
+skill:
+  name: decision-input-collector
+  version: "1"
+  description: "裁决批次输入清单整理规则"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "扫描整个 docs/ 自动发现待裁决项"
+      - "读取未在 goal 中显式指定的 Markdown 文件"
+      - "读取 .env、密钥、数据库凭证或生产敏感数据"
+  content: |
+    # Decision Input Collector
+
+    本节点只整理输入，不抽取裁决项。
+
+    必须确认:
+    - 用户显式指定了 Markdown 文件路径。
+    - 用户提供了飞书电子表格 URL/token。
+    - 用户提供了原始 Markdown 上传目录的飞书云空间文件夹 URL/token。
+    - 指定文件存在且位于当前项目工作区内。
+
+    缺少任一必要输入时输出 `blocked`。

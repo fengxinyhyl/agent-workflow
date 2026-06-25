@@ -1,0 +1,18 @@
+# mock 模式 decision 脚本。
+# 覆盖 happy path 到 human_decision_gate，Runner 会在 gate 暂停。
+
+decision_script:
+  collect_inputs:
+    - done
+  extract_decision_items:
+    - done
+  review_items:
+    - approve
+  publish_to_lark_base:
+    - done
+  human_decision_gate:
+    - done
+  collect_base_results:
+    - done
+  synthesize_decision_package:
+    - done
