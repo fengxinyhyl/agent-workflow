@@ -117,6 +117,12 @@ git branch -d feat/<module>
    - 在 `docs/runs/<run_id>/` 留一行说明该 run 由接手完成、非工作流产出，避免 run 记录与实际代码对不上。
    - 若原 run 已 failed 且被多次 retry/误操作污染、worktree 又无有效提交，优先**废弃重建**（删分支、删 worktree、重新启动），不要在脏基础上接手。
 
+3. **会话丢失后恢复**：如果 Claude 会话丢失，凭 `docs/runs/<run_id>/` 内的 run 数据即可找回 worktree 和分支：
+   - run_id 的 module 段（`YYMMDD_<module>` 中 `<module>` 部分）对应 `-t` 传入的模块名。
+   - 查 `docs/worktree_map.json`（spec-wt 启动时自动写入的映射文件）拿到 `worktree` 路径和 `branch` 名。
+   - worktree 目录还在 → 直接重试/接手；目录已删但分支还在 → 从映射拿分支名，按需重建。
+   - 详见 `.claude/commands/spec-wt.md`「会话丢失后恢复」节。
+
 ### 并行注意
 
 - 每个模块单独一次启动，各自独立 worktree。

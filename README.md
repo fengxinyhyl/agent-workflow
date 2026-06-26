@@ -976,3 +976,123 @@ workflows/                 # Workflow 包（YAML 配置 + skills）
   software-dev/            # Plan → Review → Revise → Execute → Audit → Summary
 tests/                     # 测试
 ```
+
+---
+
+## 未来演进路线（2026–2028）
+
+未来两年的演进围绕一个核心命题：**从"配置驱动的状态机"升级为"事件驱动的 Agent 操作系统"**。以下按优先级排列。
+
+### 1. Event History（事件溯源）— 最高优先级
+
+> 从"保存状态快照"升级到"保存事件流"，让整个 Runtime 可 Replay、可审计、可精准恢复。
+
+当前 `workflow_state.json` 保存的是状态快照——断点续跑只能恢复到快照时刻，无法重现"中间发生了什么"。Event History 将每个状态迁移、TaskResult、promotion、guard 触发作为不可变事件追加写入，状态本身从事件流重建（Event Sourcing）。
+
+**目标能力：**
+
+- **完整审计追踪**：任意 run 的每一步决策、产物变更、异常都可追溯到具体事件
+- **时间旅行调试**：从事件流重放到任意时刻，复现 Agent 行为和状态迁移
+- **精准断点恢复**：不再依赖快照时间点，从事件流重建到中断前最后一刻
+- **跨 run 分析**：基于事件流做 Agent 性能分析、决策质量统计、异常模式识别
+
+**关键设计决策：**
+- 事件不可变，只追加不修改
+- `workflow_state.json` 从事件流派生（materialized view），不再作为 source of truth
+- 事件 schema 向后兼容，支持版本演进
+
+### 2. Artifact Registry（产物流注册中心）
+
+> 让 Artifact 成为一等对象，而不是依赖固定文件名和目录。
+
+当前 Artifact 通过约定路径（`artifacts/<name>.md`）引用，类型信息散落在 `outputs.yaml`、`task.output`、`TaskResult.artifacts` 中，缺乏统一的元数据模型和查询能力。
+
+**目标能力：**
+
+- **Artifact 元数据注册**：每个 artifact 有唯一 ID、类型、版本链、producer task、checksum、创建时间
+- **版本语义**：支持 semver 式版本（major/minor/patch），不只是 `-v1`/`-v2` 后缀
+- **依赖图**：artifact 之间的溯源关系（哪个 task 生产了它，哪些 task 消费了它）
+- **内容寻址**：通过 checksum 去重和完整性校验
+- **查询接口**：`registry.list(type="markdown", produced_by="plan")` 而非硬编码路径
+
+**关键设计决策：**
+- Artifact 元数据存储于 `durable/registry/`，独立于单次 run
+- 文件路径从元数据派生，而非元数据从路径派生
+- 与 Event History 打通：artifact promotion 作为事件记录
+
+### 3. Policy Engine（可插拔策略引擎）
+
+> 把 Validator 泛化为可插拔策略系统，覆盖质量、安全、成本、权限等维度。
+
+当前 `validators/` 模块是硬编码的校验逻辑（TaskResult schema、artifact 路径 containment）。Policy Engine 将其抽象为声明式策略规则，按 scope（全局/workflow/task/state）组合，支持启用/禁用和自定义。
+
+**目标能力：**
+
+- **质量策略**：TaskResult schema 校验、artifact 完整性、输出格式合规
+- **安全策略**：路径 containment、命令白名单、敏感信息泄露检测、sandbox 约束
+- **成本策略**：token 预算上限、单 task 超时强制、run 级别花费告警
+- **权限策略**：Agent 工具白名单、provider 约束、permission mode 强制
+- **自定义策略**：用户通过 YAML 或 Python 插件注册自定义规则
+
+**关键设计决策：**
+- 策略定义沿用 YAML，与 workflow 配置一致的体验
+- 策略评估结果分 `pass / warn / block` 三级，`warn` 不阻断但记录
+- 支持 policy set 复用（多 workflow 共享同一套策略）
+
+### 4. Goal → Workflow 动态生成
+
+> 让 Workflow 本身可以由 Planner 动态生成，而不是完全静态 YAML。
+
+当前 Workflow 完全由人工编写 YAML 定义，适合标准化流程但无法应对开放式的、需要动态规划的任务。Goal → Workflow 生成让一个 Planner Agent 根据目标描述自动生成 workflow 定义，再交由引擎执行。
+
+**目标能力：**
+
+- **意图解析**：输入自然语言目标，Planner 分解为 task 序列和决策分支
+- **Workflow 合成**：动态生成合法的 workflow.yaml（含 state 图、task 定义、skill 匹配）
+- **增量规划**：执行中遇到 blocked 时，Planner 动态插入新 state 或调整后续链路
+- **模板实例化**：从预定义 workflow 模板库中选择并参数化
+- **人工审批 Gate**：生成的 workflow 在关键分支设 Gate 暂停，由人工确认后继续
+
+**关键设计决策：**
+- 生成的 workflow 持久化为文件，可审计、可版本控制、可手动修正
+- 动态生成不替代静态 YAML——标准化流程仍用静态配置，开放任务用动态生成
+- Planner 本身也是 Agent（服从 TaskResult 契约），其输出是 workflow 定义
+
+### 5. Knowledge Graph（知识图谱）
+
+> 统一 Ledger、Evidence、Experiment、Memory，让 Agent 查询知识对象而不是文档。
+
+当前 Skill 系统注入的是静态 Markdown 正文，Agent 缺乏对跨 run 积累的经验、实验结论、决策记录的查询能力。Knowledge Graph 将这些知识抽象为可查询的实体和关系。
+
+**目标能力：**
+
+- **Ledger（账本）**：跨 run 的决策记录——什么决策在什么上下文下做出了什么结果
+- **Evidence（证据）**：产物流中的关键事实、度量数据、测试结果的语义索引
+- **Experiment（实验）**：A/B 方案对比、技术选型分析的结构化记录
+- **Memory（记忆）**：项目级和 org 级的经验积累，自动衰减和去重
+- **语义查询**：Agent 在执行 task 时可以查询"类似场景下历史上做了什么决策、结果如何"
+
+**关键设计决策：**
+- 底层用图模型（实体 + 关系 + 属性），不依赖向量数据库
+- 知识的写入由 Policy Engine 的策略触发（如"所有 `approve` 决策自动写入 Ledger"）
+- 知识的查询通过 Agent 工具暴露（`query_knowledge("类似场景的决策记录")`），而不是注入 prompt
+- 与 Event History、Artifact Registry 深度集成——事件和 artifact 是知识的主要来源
+
+### 演进路线总览
+
+```
+2026 H2 ──── 2027 H1 ──── 2027 H2 ──── 2028 H1 ──── 2028 H2
+  │            │            │            │            │
+Event        Event       Artifact     Policy      Knowledge
+History ◄──── History    Registry ◄─── Engine ◄──── Graph
+  │          (完成)        │          (完成)        │
+  │                       │                        │
+  └─ Goal → Workflow ────┘                        │
+         (与 Event History                       │
+          并行启动)                               │
+```
+
+- **Event History** 是基础——所有后续能力依赖事件流作为数据来源
+- **Artifact Registry** 和 **Goal → Workflow** 可并行推进
+- **Policy Engine** 依赖 Registry 提供 artifact 元数据
+- **Knowledge Graph** 是最终形态——消费 Event History、Artifact Registry 和 Policy Engine 的输出，构建跨 run 的语义层
