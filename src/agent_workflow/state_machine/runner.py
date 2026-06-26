@@ -395,8 +395,8 @@ class Runner:
                         # 强制 decision 为 fail
                         task_result.decision = "fail"
                         task_result.status = "invalid_output"
+                        from ..tasks.result import Issue
                         if not task_result.issues:
-                            from ..tasks.result import Issue
                             task_result.issues = []
                         task_result.issues.append(
                             Issue(

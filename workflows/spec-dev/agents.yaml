@@ -5,7 +5,7 @@
 agents:
   claude:
     provider: claude
-    command: "{OPUS_COMMAND}"
+    command: "cc-opus"
     cwd: "{project_root}"
     permission_mode: default
     allowed_tools: "Read,Grep,Glob,Write"
@@ -14,7 +14,7 @@ agents:
 
   deepseek:
     provider: claude
-    command: "{DEEPSEEK_COMMAND}"
+    command: "cc-deepseek"
     cwd: "{project_root}"
     permission_mode: default
     allowed_tools: "Read,Grep,Glob,Write,Edit,Bash"
@@ -23,7 +23,7 @@ agents:
 
   codex:
     provider: codex
-    command: "{CODEX_COMMAND}"
+    command: "codex"
     cwd: "{project_root}"
     sandbox: workspace-write
     timeout_seconds: 7200
