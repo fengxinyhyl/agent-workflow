@@ -3,3 +3,4 @@
 - [记忆写项目目录](memory-location-project-dir.md) — 记忆写项目根 memory/，不是全局 .claude 目录
 - [预存测试技术债](preexisting-test-debt.md) — main 上 schema_contract + test_cancel 本就失败，评估回归先排除
 - [spec-dev 审核节点死循环](spec-dev-review-guard-loop.md) — output_review 易 revise 回流撞 max_visits，run failed 但代码常已产出
+- [worktree staging 基于 project_root 解析](worktree-staging-resolves-against-project-root.md) — worktree 下 run_root≠agent cwd，相对 staging_path 必须按 project_root 解析否则路径重复

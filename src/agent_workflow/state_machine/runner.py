@@ -705,28 +705,34 @@ class Runner:
             av = ArtifactValidator()
             for artifact in task_result.get_artifacts():
                 staging_path = artifact.staging_path
-                # 确保路径解析正确
+                # Agent 子进程 cwd = project_root（沙箱），其声明的相对 staging_path
+                # 基准是 project_root 而非 run_root。worktree 模式下 run_root 在主仓、
+                # agent 在 worktree，用 run_root 拼会路径重复且跨树找不到文件。
                 if staging_path and not os.path.isabs(staging_path):
-                    staging_path = os.path.join(self.context.run_root, staging_path)
+                    staging_path = os.path.join(self.context.project_root, staging_path)
 
-                # 自动修正：如果 staging_path 文件不存在，尝试预期路径 staging/{state_name}/{filename}
+                # 自动修正：文件不存在时，按 staging/{state}/{filename} 依次在
+                # project_root（agent 沙箱）和 run_root（主仓）下查找
                 if staging_path and not os.path.exists(staging_path):
                     filename = os.path.basename(staging_path)
-                    expected_path = os.path.join(
-                        self.context.run_root, "staging", state_name, filename
-                    )
-                    if os.path.exists(expected_path):
-                        all_warnings.append(
-                            f"staging_path 自动修正: {artifact.staging_path} -> {expected_path}"
-                        )
-                        # 更新 ArtifactRef
-                        artifact.staging_path = expected_path
-                        staging_path = expected_path
+                    for base in (self.context.project_root, self.context.run_root):
+                        candidate = os.path.join(base, "staging", state_name, filename)
+                        if os.path.exists(candidate):
+                            all_warnings.append(
+                                f"staging_path 自动修正: {artifact.staging_path} -> {candidate}"
+                            )
+                            staging_path = candidate
+                            break
+
+                # 回写绝对路径：确保后续 containment 检查与 promotion 不再二次拼接 run_root
+                if staging_path:
+                    staging_path = os.path.abspath(staging_path)
+                    if artifact.staging_path != staging_path:
+                        artifact.staging_path = staging_path
                         # 同步更新原始 TaskResult.artifacts 中的 dict（确保 promotion 可见）
-                        raw_artifacts = task_result.artifacts
-                        for j, raw_a in enumerate(raw_artifacts):
+                        for raw_a in task_result.artifacts:
                             if isinstance(raw_a, dict) and raw_a.get("name") == artifact.name:
-                                raw_a["staging_path"] = expected_path
+                                raw_a["staging_path"] = staging_path
                                 break
 
                 ar = av.validate(staging_path)
@@ -741,12 +747,14 @@ class Runner:
 
         # 3. 路径 containment 检查（P0g 在 promotion.py 中也做，此处做提前检测）
         try:
-            from ..artifacts.promotion import _check_path_containment
+            from ..artifacts.promotion import _check_path_containment, _check_staging_sandbox
             for artifact in task_result.get_artifacts():
                 if artifact.staging_path and artifact.artifact_path:
-                    staging_ok = _check_path_containment(
+                    # staging 文件可能落在 agent 沙箱（project_root）或主仓（run_root）。
+                    # worktree 模式下两者是不同的树，故对两个根都接受，但必须含 staging 段。
+                    staging_ok = _check_staging_sandbox(
                         artifact.staging_path,
-                        os.path.join(self.context.run_root, "staging"),
+                        [self.context.project_root, self.context.run_root],
                     )
                     # artifact_path 可能是相对路径（如 "artifacts/plan_doc.md"），
                     # 需先相对于 run_root 解析，否则 abspath 会以 CWD 为基准导致逃逸误判
@@ -1099,6 +1107,7 @@ class Runner:
                     artifact_path=versioned_path,
                     run_root=self.context.run_root,
                     artifact_name=artifact.name,
+                    staging_root=self.context.project_root,
                 )
                 if result.ok:
                     # 使用版本化 promote（保留完整版本链）

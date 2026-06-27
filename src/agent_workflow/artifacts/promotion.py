@@ -46,11 +46,49 @@ def _check_path_containment(target_path: str, allowed_base: str) -> bool:
         return False
 
 
+def _check_staging_sandbox(staging_path: str, sandbox_roots: list[str]) -> bool:
+    """检查 staging 文件是否合法落在某个沙箱根内、且路径含 staging 段。
+
+    worktree 模式下 agent 在 project_root 沙箱写文件，run_root 在主仓，
+    两者是不同的树。staging 文件落在任一根下都合法，但必须经由 staging/
+    目录（防止 agent 把任意源码文件登记为产物）。
+
+    Args:
+        staging_path: 待检查的 staging 路径（应为绝对路径）
+        sandbox_roots: 允许的沙箱根列表（如 [project_root, run_root]）
+
+    Returns:
+        True 如果 staging_path 在任一沙箱根内且路径含 "staging" 段。
+    """
+    try:
+        resolved = os.path.realpath(os.path.abspath(staging_path))
+    except (ValueError, OSError):
+        return False
+
+    # 路径必须含 staging 段（区分大小写按 OS 处理已由 realpath 规范化）
+    parts = resolved.replace("\\", "/").split("/")
+    if "staging" not in parts:
+        return False
+
+    for root in sandbox_roots:
+        if not root:
+            continue
+        try:
+            resolved_root = os.path.realpath(os.path.abspath(root))
+            if os.path.commonpath([resolved, resolved_root]) == resolved_root:
+                return True
+        except (ValueError, OSError):
+            continue
+    return False
+
+
+
 def promote_artifact(
     staging_path: str,
     artifact_path: str,
     run_root: str,
     artifact_name: str = "",
+    staging_root: str | None = None,
 ) -> PromotionResult:
     """将 staging 文件提升到正式 artifacts。
 
@@ -60,24 +98,35 @@ def promote_artifact(
     - 复制到 artifacts 目录
     - 原 staging 文件保留用于排查
     - 返回 PromotionResult
+
+    Args:
+        staging_root: staging 文件所在的沙箱根。worktree 模式下 agent 在
+            project_root 写 staging，与 run_root（主仓）不在同一棵树，需显式传入。
+            为 None 时回退到 run_root（普通模式 staging 在 run_root/staging 下）。
     """
-    # 解析路径（确保是绝对路径或相对于 run_root）
+    # staging_root 用于解析相对 staging_path 并界定沙箱；默认与 run_root 同
+    staging_root = staging_root or run_root
+
+    # 解析路径（确保是绝对路径或相对于对应根）
     if not os.path.isabs(staging_path):
-        staging_path = os.path.join(run_root, staging_path)
+        staging_path = os.path.join(staging_root, staging_path)
     if not os.path.isabs(artifact_path):
         artifact_path = os.path.join(run_root, artifact_path)
 
     # P0g: 路径 containment 检查
-    staging_base = os.path.join(run_root, "staging")
     artifacts_base = os.path.join(run_root, "artifacts")
 
-    if not _check_path_containment(staging_path, staging_base):
+    # staging 文件可落在 project_root 或 run_root 沙箱，但必须经由 staging/ 段
+    sandbox_roots = [staging_root]
+    if run_root not in sandbox_roots:
+        sandbox_roots.append(run_root)
+    if not _check_staging_sandbox(staging_path, sandbox_roots):
         return PromotionResult(
             ok=False,
             artifact_name=artifact_name,
             staging_path=staging_path,
             artifact_path=artifact_path,
-            error=f"staging 路径逃逸 run_root: {staging_path}（必须在 {staging_base} 之下）",
+            error=f"staging 路径逃逸沙箱: {staging_path}（必须在 {sandbox_roots} 的 staging/ 之下）",
         )
 
     if not _check_path_containment(artifact_path, artifacts_base):
