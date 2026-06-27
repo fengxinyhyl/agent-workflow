@@ -259,7 +259,9 @@ class Runner:
         )
 
         # 创建目录结构
-        os.makedirs(os.path.join(run_root, "staging"), exist_ok=True)
+        # staging 落在 agent 可写的 staging_root（worktree 模式 = project_root 沙箱），
+        # artifacts/logs 始终在主仓 run_root（恢复能力不依赖 staging 落点）。
+        os.makedirs(os.path.join(self.context.staging_root, "staging"), exist_ok=True)
         os.makedirs(os.path.join(run_root, "artifacts"), exist_ok=True)
         os.makedirs(os.path.join(run_root, "logs"), exist_ok=True)
 
@@ -597,7 +599,7 @@ class Runner:
     def _write_task_result_json(self, state_name: str, task_result):
         """P0c: 将 TaskResult 序列化写入 staging/<state>/task_result.json。"""
         try:
-            staging_dir = os.path.join(self.context.run_root, "staging", state_name)
+            staging_dir = os.path.join(self.context.staging_root, "staging", state_name)
             os.makedirs(staging_dir, exist_ok=True)
             tr_path = os.path.join(staging_dir, "task_result.json")
             with open(tr_path, "w", encoding="utf-8") as f:
@@ -706,16 +708,24 @@ class Runner:
             for artifact in task_result.get_artifacts():
                 staging_path = artifact.staging_path
                 # Agent 子进程 cwd = project_root（沙箱），其声明的相对 staging_path
-                # 基准是 project_root 而非 run_root。worktree 模式下 run_root 在主仓、
-                # agent 在 worktree，用 run_root 拼会路径重复且跨树找不到文件。
+                # 基准是 agent 可写的 staging_root（worktree 模式 = project_root 沙箱，
+                # 普通模式 = run_root）。用 run_root 拼会跨树找不到文件。
                 if staging_path and not os.path.isabs(staging_path):
-                    staging_path = os.path.join(self.context.project_root, staging_path)
+                    staging_path = os.path.join(self.context.staging_root, staging_path)
 
                 # 自动修正：文件不存在时，按 staging/{state}/{filename} 依次在
-                # project_root（agent 沙箱）和 run_root（主仓）下查找
+                # staging_root（首选）、project_root（agent 沙箱）、run_root（主仓）下查找
                 if staging_path and not os.path.exists(staging_path):
                     filename = os.path.basename(staging_path)
-                    for base in (self.context.project_root, self.context.run_root):
+                    search_bases = []
+                    for b in (
+                        self.context.staging_root,
+                        self.context.project_root,
+                        self.context.run_root,
+                    ):
+                        if b and b not in search_bases:
+                            search_bases.append(b)
+                    for base in search_bases:
                         candidate = os.path.join(base, "staging", state_name, filename)
                         if os.path.exists(candidate):
                             all_warnings.append(
@@ -845,9 +855,9 @@ class Runner:
                     task_skills=task_skills,
                     context=self.context,
                 )
-                # 写入 staging/<state>/skill_adoption.md
+                # 写入 staging/<state>/skill_adoption.md（落在 agent 沙箱 staging_root）
                 staging_adoption = self._adoption.write_adoption_artifact(
-                    self.context.run_root,
+                    self.context.staging_root,
                     state_name,
                     adopted_skills,
                 )
@@ -959,7 +969,9 @@ class Runner:
                 pass
 
         # 构建 staging paths
-        staging_dir = os.path.join(self.context.run_root, "staging", state_name)
+        # 用 staging_root（agent 可写沙箱）而非 run_root：worktree 模式下 run_root
+        # 在主仓、agent 在 worktree，告知 run_root 路径 agent 写不进去。
+        staging_dir = os.path.join(self.context.staging_root, "staging", state_name)
         output_name = task_config.output or "output"
         staging_paths = {
             output_name: os.path.join(staging_dir, f"{output_name}.md"),
@@ -1012,8 +1024,8 @@ class Runner:
                 f"Agent '{agent_name}' 未注册且无 mock fallback",
             )
 
-        # 确保 staging 目录存在
-        staging_dir = os.path.join(self.context.run_root, "staging", state_name)
+        # 确保 staging 目录存在（agent 沙箱可写的 staging_root）
+        staging_dir = os.path.join(self.context.staging_root, "staging", state_name)
         os.makedirs(staging_dir, exist_ok=True)
 
         # 执行

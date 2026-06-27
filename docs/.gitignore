@@ -1,0 +1,5 @@
+# docs/runs/ 作为项目沉淀纳入版本库，仅排除流式日志（约160MB过程噪声）
+runs/**/logs/
+runs/**/*.stream.jsonl
+run_index.json
+worktree_map.json

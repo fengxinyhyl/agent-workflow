@@ -151,7 +151,7 @@ def _build_dry_run_steps(
         ops.append(f"清除 task_results['{retry_state}']")
     if context.get_attempt(retry_state) > 0:
         ops.append(f"重置 attempts['{retry_state}'] (当前 {context.get_attempt(retry_state)})")
-    staging_dir = os.path.join(context.run_root, "staging", retry_state)
+    staging_dir = os.path.join(context.staging_root, "staging", retry_state)
     if os.path.exists(staging_dir):
         ops.append(f"清理 {staging_dir}")
     if context.workflow_variables.get("_paused_at_gate"):
@@ -188,8 +188,8 @@ def _reset_state_for_retry(context: RunContext, state_name: str):
     context.workflow_variables.pop("_paused_at_gate", None)
     context.workflow_variables.pop("_run_status", None)
 
-    # 清理 staging 目录
-    staging_dir = os.path.join(context.run_root, "staging", state_name)
+    # 清理 staging 目录（agent 沙箱可写的 staging_root）
+    staging_dir = os.path.join(context.staging_root, "staging", state_name)
     if os.path.exists(staging_dir):
         shutil.rmtree(staging_dir)
 

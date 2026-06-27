@@ -36,7 +36,7 @@ class ClaudeCLI(BaseAgent):
         self._session_id = str(uuid.uuid4())
 
         prompt = agent_input.build_prompt()
-        staging_dir = os.path.join(agent_input.context.run_root, "staging", state_name)
+        staging_dir = os.path.join(agent_input.context.staging_root, "staging", state_name)
         os.makedirs(staging_dir, exist_ok=True)
         prompt_path = os.path.join(staging_dir, "prompt.md")
         with open(prompt_path, "w", encoding="utf-8") as f:
