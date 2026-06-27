@@ -7,6 +7,7 @@ P0 CLI 命令：
   run                   启动 workflow
   status                查看运行状态
   explain               解释当前等待项和可能的后续状态
+  history               查看运行事件因果时间线
   log                   查看运行日志
   tail                  查看节点日志
   retry                 重试（默认 dry-run）

@@ -47,6 +47,8 @@ agent-workflow validate-state-machine -w workflows/<workflow>/workflow.yaml
 ```text
 /agent-workflow status <run_id>
 /agent-workflow explain <run_id>
+/agent-workflow history <run_id>
+/agent-workflow history <run_id> <state>     # 反查 state 进入原因
 ```
 
 等价于：
@@ -54,6 +56,8 @@ agent-workflow validate-state-machine -w workflows/<workflow>/workflow.yaml
 ```powershell
 agent-workflow status -r <run_id>
 agent-workflow explain -r <run_id>
+agent-workflow history -r <run_id>
+agent-workflow history -r <run_id> --why <state>
 ```
 
 ### 查看日志
@@ -112,7 +116,7 @@ agent-workflow continue -r <run_id> -w workflows/<workflow>/workflow.yaml [--app
 
 ## 参数解析
 
-1. 第一个 token 识别为 `mode`：`validate` / `status` / `explain` / `log` / `tail` / `cancel` / `retry` / `continue`。
+1. 第一个 token 识别为 `mode`：`validate` / `status` / `explain` / `history` / `log` / `tail` / `cancel` / `retry` / `continue`。
 2. 默认模式（第一个 token 不是以上关键字）→ `run` 模式，第一个 token = workflow 名称。
 3. 若出现 `-t <值>`，提取为 `--topic`，不归入 goal。
 4. `retry` 模式下检查是否有 `dispatch` token，有则映射为 `--dispatch`，否则默认 `--dry-run`。`continue` 模式下检查是否有 `approve` token，有则映射为 `--approve`。

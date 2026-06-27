@@ -41,8 +41,16 @@ agent-workflow explain -r <run_id>
 agent-workflow log -r <run_id> --summary
 agent-workflow tail -r <run_id> -s <state> -n 80
 
+# 查看事件因果时间线（状态迁移 + TaskResult + promotion 链路）
+agent-workflow history -r <run_id>
+agent-workflow history -r <run_id> --why <state>   # 反查 state 进入原因
+
+# 从 Gate 暂停状态继续
+agent-workflow continue -r <run_id> -w <workflow.yaml> --approve
+agent-workflow continue -r <run_id> -w <workflow.yaml> --reject
+
 # 重试（默认 dry-run，加 --dispatch 真实执行）
-agent-workflow retry -r <run_id> [--dispatch]
+agent-workflow retry -r <run_id> [--dispatch] [--from-state <state>]
 
 # 取消运行
 agent-workflow cancel -r <run_id> --reason "..."

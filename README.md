@@ -4,6 +4,72 @@
 
 ---
 
+## 快速概览
+
+| 维度 | 说明 |
+|------|------|
+| **做什么** | YAML 定义状态机 → 引擎调度 AI Agent 按工作流协作 → 产出自动物/日志/事件 |
+| **核心价值** | 零代码编排、多 Agent 协作、产物可追溯、断点可续跑 |
+| **适用场景** | 需求分析、方案设计、代码实现、代码审查、多模型交叉验证 |
+
+### 命令速查
+
+```bash
+# 工作流生命周期
+agent-workflow run        -w <workflow.yaml> -g "<目标>"    # 启动
+agent-workflow continue   -r <run_id> -w <workflow.yaml>     # 从 Gate 恢复
+agent-workflow cancel     -r <run_id>                        # 取消
+
+# 状态查看
+agent-workflow status     -r <run_id>       # 运行状态
+agent-workflow explain    -r <run_id>       # 解释当前等待项
+agent-workflow history    -r <run_id>       # 事件因果时间线
+agent-workflow log        -r <run_id> --summary  # 汇总日志
+agent-workflow tail       -r <run_id> -s <state>  # 节点日志
+
+# 运维
+agent-workflow retry      -r <run_id> [--dispatch]   # 重试（默认 dry-run）
+agent-workflow validate-config         -w <workflow.yaml>  # 校验配置
+agent-workflow validate-state-machine  -w <workflow.yaml>  # 校验状态机
+agent-workflow smoke      --agent <name>              # Agent 冒烟测试
+```
+
+### Claude Code 快捷命令速查
+
+```text
+/agent-workflow <workflow> [-t <topic>] <goal>    # 启动工作流
+/agent-workflow status|explain|log|history <run_id>    # 查看运行
+/agent-workflow tail <run_id> <state> [lines]     # 查看节点日志
+/agent-workflow retry <run_id> [dispatch]          # 重试
+/agent-workflow cancel <run_id> [reason]           # 取消
+/agent-workflow continue <run_id> [approve]        # 从 Gate 恢复
+/spec-wt -t <module> <goal>                        # Worktree 隔离并行开发
+```
+
+---
+
+## 快速开始
+
+```bash
+# 1. 安装
+pip install -e .
+
+# 2. 校验工作流
+agent-workflow validate-state-machine -w workflows/plan-review-advise-execute-example/workflow.yaml
+
+# 3. Mock 模式试跑（无需外部 CLI）
+agent-workflow run \
+  -w workflows/plan-review-advise-execute-example/workflow.yaml \
+  -g "实现一个 hello world" \
+  -p .
+
+# 4. 查看结果
+agent-workflow log -r <run_id> --summary
+agent-workflow history -r <run_id>
+```
+
+---
+
 ## 设计原则
 
 | 原则 | 说明 |
@@ -16,53 +82,100 @@
 
 ---
 
-## 主要功能
+## CLI 命令参考
 
-### 核心能力
-
-- **YAML 驱动状态机**：无需写代码，一套 `workflow.yaml` 定义完整的 Agent 协作链路
-- **独立工作目录与并行隔离**：`--project-root` 为每个 run 指定独立工作目录，Agent 的执行目录（`cwd`）随之解析；配合 git worktree 可让多个 run 在各自工作树中并行执行、代码改动互不覆盖，`--run-root` 可将产物统一收口到指定目录
-- **多 Agent 编排**：支持 Claude CLI、Codex CLI、DeepSeek 等多个 Agent 在同一工作流中分工协作
-- **TaskResult 契约**：标准化 JSON 输出，Agent 通过 `decision` 字段驱动状态迁移（如 `done`、`approve`、`revise`、`reject`）
-- **Staging → Artifacts 两阶段**：Agent 输出先入暂存区，校验通过后才提升为正式产物流，保证产物可靠性
-- **_loop 自动展开**：声明式循环块，引擎自动展开为 `_r1`/`_r2`/... 后缀的状态序列
-- **版本管理**：`version_strategy: increment` 在同节点回流时自动生成 `-v1`/`-v2` 后缀，保留完整版本链
-- **Guard 防护**：限制状态最大访问次数、最长运行时间、最大重试次数，防止死循环
-- **Skill 系统**：每个 task 可挂载 skill（YAML/Markdown），Runner 自动加载并注入 Agent prompt
-- **断点续跑**：`RunContext` 序列化到 `workflow_state.json`，中断后可从断点恢复
-
-### 可观测性
-
-- **EventBus** — 所有状态进入、TaskResult、promotion、错误等事件统一分发
-- **ConsoleSink** — 终端实时输出
-- **JSONLSink** — 结构化事件日志（`logs/events.jsonl`）
-- **Heartbeat** — 长时间运行心跳
-- **status / explain** — 查看运行状态、解释当前等待项
-- **log / tail** — 查看运行日志、按节点查看输出
-
-### CLI 命令
+### 工作流生命周期
 
 ```bash
-agent-workflow validate-config        # 校验工作流配置
-agent-workflow validate-state-machine # 校验状态机完备性
-agent-workflow smoke --agent <name>   # Agent/Role 冒烟测试
-agent-workflow run -w <workflow.yaml> -g "<目标>"  # 启动工作流
-agent-workflow run -w <workflow.yaml> -g "<目标>" \
-  --agent-map "task:review=cc-deepseek,state:review_r2=claude-haiku"  # 运行时覆盖 agent
-agent-workflow status -r <run_id>     # 查看运行状态
-agent-workflow explain -r <run_id>    # 解释当前等待项
-agent-workflow log -r <run_id> --summary  # 查看汇总日志
-agent-workflow tail -r <run_id> -s <state> # 查看节点日志
-agent-workflow continue -r <run_id> -w <workflow.yaml> --approve --input <human_clarification.md>  # 从 Gate 恢复
-agent-workflow cancel -r <run_id>     # 取消运行
-agent-workflow retry -r <run_id> [--dispatch]  # 重试
+# 启动工作流
+agent-workflow run -w <workflow.yaml> -g "<目标描述>" [-t <topic>] [-p <project_root>]
+
+# 运行时覆盖 agent（无需修改 YAML）
+# state: 优先级高于 task:，均高于 YAML 默认值
+agent-workflow run -w <workflow.yaml> -g "<目标描述>" \
+  --agent-map "task:review=cc-deepseek,state:review_r2=claude-haiku"
+
+# 从 Gate 暂停状态恢复
+agent-workflow continue -r <run_id> -w <workflow.yaml> --approve
+agent-workflow continue -r <run_id> -w <workflow.yaml> --reject
+
+# 注入人工澄清文件
+agent-workflow continue -r <run_id> -w <workflow.yaml> --approve --input human_clarification.md
+
+# 取消运行
+agent-workflow cancel -r <run_id> --reason "..."
 ```
 
-### Claude Code 快捷命令
+### 状态查看
 
-在 Claude Code 中通过 `/` 前缀的快捷命令触发，无需手动拼写完整 CLI 参数。
+```bash
+# 查看运行状态
+agent-workflow status -r <run_id>
 
-#### `/agent-workflow` — 工作流生命周期
+# 解释当前等待项（当前在哪个 state、为什么等待、后续可能走向）
+agent-workflow explain -r <run_id>
+
+# 查看事件因果时间线（状态迁移 + TaskResult + promotion 链路）
+agent-workflow history -r <run_id>
+
+# 反查指定 state 的进入原因链
+agent-workflow history -r <run_id> --why <state_name>
+
+# 显示全部事件（包括心跳、输出行等细节）
+agent-workflow history -r <run_id> --all
+
+# 查看汇总日志
+agent-workflow log -r <run_id> --summary
+
+# 查看完整事件日志
+agent-workflow log -r <run_id>
+
+# 查看指定节点的输出（默认 80 行）
+agent-workflow tail -r <run_id> -s <state> -n 80
+```
+
+### 运维与诊断
+
+```bash
+# 重试（默认 dry-run，仅预览不做实际执行）
+agent-workflow retry -r <run_id>
+
+# 从指定 state 开始重试
+agent-workflow retry -r <run_id> --from-state <state>
+
+# 真实执行重试
+agent-workflow retry -r <run_id> --dispatch
+
+# 重试时显式指定 workflow（用于自动发现 agents/skills）
+agent-workflow retry -r <run_id> --dispatch -w <workflow.yaml>
+```
+
+**`retry` 诊断输出说明**：
+
+dry-run 模式下会输出完整诊断信息和重试计划：
+- `diagnose_last_failure` — 分析失败原因（`validator_block` / `guard_loop` / `guard_timeout` / `agent_crash`）
+- `plan_rollback` — 规划回滚操作
+- `plan_execution` — 规划重新执行的 state 序列
+- `summary` — 汇总重试步骤
+
+```bash
+# 校验工作流配置
+agent-workflow validate-config -w <workflow.yaml>
+
+# 校验状态机完备性（检查 dead state、不可达路径等）
+agent-workflow validate-state-machine -w <workflow.yaml>
+
+# Agent 冒烟测试
+agent-workflow smoke --agent <agent_name> [--agents <agents.yaml>]
+```
+
+---
+
+## Claude Code 快捷命令
+
+在 Claude Code 中通过 `/` 前缀触发，无需手动拼写完整 CLI 参数。
+
+### `/agent-workflow` — 工作流生命周期
 
 ```text
 # 启动工作流（最常用）
@@ -74,6 +187,10 @@ agent-workflow retry -r <run_id> [--dispatch]  # 重试
 # 查看运行状态
 /agent-workflow status <run_id>
 /agent-workflow explain <run_id>
+
+# 查看事件因果时间线
+/agent-workflow history <run_id>
+/agent-workflow history <run_id> <state>    # 反查 state 进入原因
 
 # 查看日志
 /agent-workflow log <run_id>
@@ -96,11 +213,13 @@ agent-workflow retry -r <run_id> [--dispatch]  # 重试
 /agent-workflow listing-dev -t add-login-page 实现用户登录功能
 /agent-workflow spec-dev -t refactor-auth 重构权限验证模块
 /agent-workflow validate spec-dev
+/agent-workflow history 260626_listing-dev
+/agent-workflow history 260626_listing-dev plan     # 反查 plan 状态为何被进入
 /agent-workflow tail 260626_listing-dev plan 80
 /agent-workflow retry 260626_listing-dev dispatch
 ```
 
-#### `/spec-wt` — Worktree 隔离并行开发
+### `/spec-wt` — Worktree 隔离并行开发
 
 在**独立 git worktree** 中运行 `spec-dev` 工作流，实现多个并行开发的代码物理隔离——每个模块拥有独立工作目录和分支，互不覆盖。
 
@@ -124,6 +243,58 @@ agent-workflow retry -r <run_id> [--dispatch]  # 重试
 **机制**：在 `<repo>\..\aw-wt\<module>` 创建 worktree + `feat/<module>` 分支，`project_root` 指向 worktree、`run-root` 收口到主仓 `docs/runs/`。执行完成后展示 commit / merge / remove 指引（均需手动确认，不自动执行）。工作流失败时保留 worktree，支持从断点 `retry` 续跑。
 
 **恢复**：模块名与对应 worktree/分支的映射持久化在 `docs/worktree_map.json`，会话丢失后凭 run 数据可找回。
+
+---
+
+## 核心功能详解
+
+### 核心能力
+
+- **YAML 驱动状态机**：无需写代码，一套 `workflow.yaml` 定义完整的 Agent 协作链路
+- **独立工作目录与并行隔离**：`--project-root` 为每个 run 指定独立工作目录，Agent 的执行目录（`cwd`）随之解析；配合 git worktree 可让多个 run 在各自工作树中并行执行、代码改动互不覆盖，`--run-root` 可将产物统一收口到指定目录
+- **多 Agent 编排**：支持 Claude CLI、Codex CLI、DeepSeek 等多个 Agent 在同一工作流中分工协作
+- **TaskResult 契约**：标准化 JSON 输出，Agent 通过 `decision` 字段驱动状态迁移（如 `done`、`approve`、`revise`、`reject`）
+- **Staging → Artifacts 两阶段**：Agent 输出先入暂存区，校验通过后才提升为正式产物流，保证产物可靠性
+- **_loop 自动展开**：声明式循环块，引擎自动展开为 `_r1`/`_r2`/... 后缀的状态序列
+- **版本管理**：`version_strategy: increment` 在同节点回流时自动生成 `-v1`/`-v2` 后缀，保留完整版本链
+- **Guard 防护**：限制状态最大访问次数、最长运行时间、最大重试次数，防止死循环
+- **Skill 系统**：每个 task 可挂载 skill（YAML/Markdown），Runner 自动加载并注入 Agent prompt
+- **断点续跑**：`RunContext` 序列化到 `workflow_state.json`，中断后可从断点恢复
+
+### 可观测性
+
+- **EventBus** — 所有状态进入、TaskResult、promotion、错误等事件统一分发
+- **ConsoleSink** — 终端实时输出
+- **JSONLSink** — 结构化事件日志（`logs/events.jsonl`）
+- **Heartbeat** — 长时间运行心跳
+- **status** — 查看运行状态（当前 state、访问次数、产物列表）
+- **explain** — 解释当前等待项（为什么停在这里、后续可能走向）
+- **history** — 事件因果时间线（状态迁移链路 + TaskResult + promotion，支持 `--why` 反查指定 state 的进入原因）
+- **log / tail** — 查看运行日志、按节点查看输出
+
+### 持久化存储
+
+```
+.agent-workflow/
+  durable/                  # 持久化恢复数据（独立于单次 run）
+    events/<id>.events.jsonl
+    registry/<id>.artifacts.jsonl
+    checkpoints/<id>.checkpoints.jsonl
+  runs/<run_id>/
+    staging/<state>/        # Agent 暂存输出
+    artifacts/              # 正式产物流（promote 后）
+    logs/events.jsonl       # 事件日志
+    packets/                # worker 调试副本
+    workflow_state.json     # RunContext 序列化
+    cancelled               # 取消信号文件
+```
+
+### Agent 适配器
+
+- **MockAgent**：不调用外部 CLI，生成 mock 输出。支持 `decision_script` 配置（按 state 访问次数返回不同 decision，演示状态机回流）
+- **ClaudeCLI**：调用 Claude CLI (`claude`)，解析 stream-json 输出提取 token usage / session_id
+- **CodexCLI**：调用 Codex CLI (`codex exec`)，解析 JSONL 输出提取 thread_id / usage
+- **安全拦截**：`_assert_safe_permission()` 拒绝 `--dangerouslyDisableSandbox` / `--permission-mode bypass`；`_assert_safe_sandbox()` 白名单限制 Codex `--sandbox` 值
 
 ---
 
@@ -889,7 +1060,7 @@ agent-workflow validate-state-machine -w <workflow.yaml>
 
 ### 目录结构
 
-每次运行后 `.agent-workflow/runs/<run_id>/` 下的三个核心目录：
+每次运行后 `.agent-workflow/runs/<run_id>/` 下的核心目录：
 
 ```
 .agent-workflow/runs/<run_id>/
@@ -1027,17 +1198,38 @@ agent-workflow continue \
 
 ---
 
-## 安装
+## 安装与项目结构
+
+### 安装
 
 ```bash
 pip install -e .
 ```
 
-## 项目结构
+### 运行测试
+
+```bash
+# 运行全部测试
+cd agent-workflow
+$env:PYTHONPATH='src;.'; pytest tests -q
+
+# 运行单个测试文件
+$env:PYTHONPATH='src;.'; pytest tests/unit/test_state_machine.py -q
+
+# 运行单个测试方法
+$env:PYTHONPATH='src;.'; pytest tests/unit/test_task_result_v4.py::TestTaskResult::test_create_valid -q
+
+# 只运行单元测试
+$env:PYTHONPATH='src;.'; pytest tests/unit/ -q
+```
+
+`pyproject.toml` 已配置 `testpaths = ["tests"]` 和 `timeout = 300`。
+
+### 项目结构
 
 ```
 src/agent_workflow/
-  cli.py                   # CLI 入口（11 个子命令）
+  cli.py                   # CLI 入口（12 个子命令）
   config/                  # YAML 配置模型 (TaskModel/StateModel/AgentModel/GuardModel/WorkflowConfig) 与加载器
   state_machine/           # StateMachine、Runner（主循环）、Transition、Guard、Retry
   tasks/                   # TaskResult（标准化 Agent 输出）、result_schema（JSON Schema 生成）
@@ -1045,7 +1237,7 @@ src/agent_workflow/
   artifacts/               # Staging 暂存、Promotion、Resolver
   skills/                  # Skill 模型、YAML/Markdown 加载、Adoption 协议、Policy 解析
   validators/              # TaskResult / Artifact / Repo / Command 校验器
-  observability/           # EventBus、ConsoleSink、JSONLSink、Heartbeat、status、explain
+  observability/           # EventBus、ConsoleSink、JSONLSink、Heartbeat、status、explain、history
   context/                 # RunContext（可序列化到 workflow_state.json，支持断点续跑）+ AgentInput
   state/                   # 状态持久化与锁
 workflows/                 # Workflow 包（YAML 配置 + skills）
