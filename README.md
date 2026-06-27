@@ -1,6 +1,8 @@
 # Agent Workflow
 
-通用 AI Agent 编排引擎。通过 **纯 YAML 配置** 驱动状态机，调度多个 AI Agent（Claude、Codex、DeepSeek）按预定义工作流协作。支持可观测性、产物流管理、断点续跑。
+通用 AI Agent 编排引擎。通过 **纯 YAML 配置** 驱动状态机，调度多个 AI Agent（Claude CLI、Codex CLI）按预定义工作流协作。支持可观测性、产物流管理、断点续跑。
+
+> **说明**：Agent 的 provider 类型有 `claude`、`codex`、`mock`、`command` 四种。Claude CLI adapter 通过 `command` 配置可调用不同模型（如 Opus、DeepSeek、Haiku），它们在 provider 层面统一为 `claude`。
 
 ---
 
@@ -15,7 +17,7 @@
 ### 命令速查
 
 ```bash
-# 工作流生命周期
+# 启动与运行
 agent-workflow run        -w <workflow.yaml> -g "<目标>"    # 启动
 agent-workflow continue   -r <run_id> -w <workflow.yaml>     # 从 Gate 恢复
 agent-workflow cancel     -r <run_id>                        # 取消
@@ -27,8 +29,10 @@ agent-workflow history    -r <run_id>       # 事件因果时间线
 agent-workflow log        -r <run_id> --summary  # 汇总日志
 agent-workflow tail       -r <run_id> -s <state>  # 节点日志
 
-# 运维
+# 故障恢复
 agent-workflow retry      -r <run_id> [--dispatch]   # 重试（默认 dry-run）
+
+# 校验与测试
 agent-workflow validate-config         -w <workflow.yaml>  # 校验配置
 agent-workflow validate-state-machine  -w <workflow.yaml>  # 校验状态机
 agent-workflow smoke      --agent <name>              # Agent 冒烟测试
@@ -158,6 +162,39 @@ dry-run 模式下会输出完整诊断信息和重试计划：
 - `plan_execution` — 规划重新执行的 state 序列
 - `summary` — 汇总重试步骤
 
+**retry 工作流程**：`retry`（默认 dry-run）→ 查看诊断 → 确认无误 → `retry --dispatch` 真实执行。dispatch 模式下会从 `workflow_state.json` 恢复 RunContext 和 `_workflow_snapshot` 快照，自动发现 workflow 文件并重建 Runner，从中断点继续执行。
+
+```bash
+# 1. 先预览（dry-run）
+agent-workflow retry -r <run_id>
+
+# 2. 查看诊断
+agent-workflow history -r <run_id>
+agent-workflow explain -r <run_id>
+
+# 3. 确认后真实执行
+agent-workflow retry -r <run_id> --dispatch
+```
+
+**`--agent-map` 工作原理**：
+
+运行时覆盖 Agent 配置的字符串格式：`"state:状态名=agent名,task:任务名=agent名"`。
+
+- **解析优先级**：`state:xxx`（每状态级别）> `task:xxx`（每任务级别）> YAML 默认值
+- **格式校验（fail-fast）**：格式错误或引用不存在的 state/task/agent 时，直接拒绝启动
+- **典型用法**：为不同 review 轮次指定不同模型
+
+```bash
+# 语法
+agent-workflow run -w <workflow.yaml> -g "<目标>" \
+  --agent-map "state:<state_name>=<agent>,task:<task_name>=<agent>"
+
+# 示例：第一轮 review 用 DeepSeek，第二轮用 Haiku
+agent-workflow run -w workflows/plan-review-advise-loop-example/workflow.yaml \
+  -g "实现登录功能" \
+  --agent-map "state:review_r1=cc-deepseek,state:review_r2=claude-haiku"
+```
+
 ```bash
 # 校验工作流配置
 agent-workflow validate-config -w <workflow.yaml>
@@ -252,7 +289,7 @@ agent-workflow smoke --agent <agent_name> [--agents <agents.yaml>]
 
 - **YAML 驱动状态机**：无需写代码，一套 `workflow.yaml` 定义完整的 Agent 协作链路
 - **独立工作目录与并行隔离**：`--project-root` 为每个 run 指定独立工作目录，Agent 的执行目录（`cwd`）随之解析；配合 git worktree 可让多个 run 在各自工作树中并行执行、代码改动互不覆盖，`--run-root` 可将产物统一收口到指定目录
-- **多 Agent 编排**：支持 Claude CLI、Codex CLI、DeepSeek 等多个 Agent 在同一工作流中分工协作
+- **多 Agent 编排**：支持 Claude CLI、Codex CLI 等多个 Agent 在同一工作流中分工协作。Claude CLI 可通过 `command` 配置切换不同模型（Opus、DeepSeek、Haiku 等）
 - **TaskResult 契约**：标准化 JSON 输出，Agent 通过 `decision` 字段驱动状态迁移（如 `done`、`approve`、`revise`、`reject`）
 - **Staging → Artifacts 两阶段**：Agent 输出先入暂存区，校验通过后才提升为正式产物流，保证产物可靠性
 - **_loop 自动展开**：声明式循环块，引擎自动展开为 `_r1`/`_r2`/... 后缀的状态序列
@@ -263,37 +300,44 @@ agent-workflow smoke --agent <agent_name> [--agents <agents.yaml>]
 
 ### 可观测性
 
-- **EventBus** — 所有状态进入、TaskResult、promotion、错误等事件统一分发
-- **ConsoleSink** — 终端实时输出
-- **JSONLSink** — 结构化事件日志（`logs/events.jsonl`）
-- **Heartbeat** — 长时间运行心跳
-- **status** — 查看运行状态（当前 state、访问次数、产物列表）
-- **explain** — 解释当前等待项（为什么停在这里、后续可能走向）
-- **history** — 事件因果时间线（状态迁移链路 + TaskResult + promotion，支持 `--why` 反查指定 state 的进入原因）
-- **log / tail** — 查看运行日志、按节点查看输出
+**基础设施**：
+- **EventBus** — 所有状态进入、TaskResult、promotion、错误等事件统一分发，支持多 sink 同时注册
+- **ConsoleSink** — 终端实时输出，任务完成时展示耗时/token/agent 汇总表
+- **JSONLSink** — 结构化事件日志写入 `events.jsonl`（每行一个 JSON 事件），每 50 条事件 flush 一次
+- **Heartbeat** — 后台 daemon 线程每 30 秒发射心跳事件，支持 stale 检测（5 分钟阈值）
+
+**查询接口**（具体用法见 [CLI 命令参考](#cli-命令参考)）：
+- `status` — 当前 state、运行时长、心跳、产物列表
+- `explain` — 为何停在此处、allowed_decisions、可能的后续走向、Guard 状态
+- `history` — 事件因果时间线，支持 `--why` 反查指定 state 的进入原因链
+- `log / tail` — 汇总日志 / 按节点查看最近 N 行输出
 
 ### 持久化存储
 
+运行产物默认存放在 `{project_root}/docs/runs/<run_id>/`（可通过 `--run-root` 自定义）。`.agent-workflow/durable/` 存放跨 run 的持久化恢复数据。
+
 ```
+{run_root}/                  # 默认: docs/runs/<run_id>/
+  staging/<state>/           # Agent 暂存输出
+  artifacts/                 # 正式产物流（promote 后）
+  logs/events.jsonl          # 事件日志
+  packets/                   # worker 调试副本
+  workflow_state.json        # RunContext 序列化（含 _workflow_snapshot 快照）
+  cancelled                  # 取消信号文件
+
 .agent-workflow/
-  durable/                  # 持久化恢复数据（独立于单次 run）
+  durable/                   # 持久化恢复数据（独立于单次 run）
     events/<id>.events.jsonl
     registry/<id>.artifacts.jsonl
     checkpoints/<id>.checkpoints.jsonl
-  runs/<run_id>/
-    staging/<state>/        # Agent 暂存输出
-    artifacts/              # 正式产物流（promote 后）
-    logs/events.jsonl       # 事件日志
-    packets/                # worker 调试副本
-    workflow_state.json     # RunContext 序列化
-    cancelled               # 取消信号文件
 ```
 
 ### Agent 适配器
 
 - **MockAgent**：不调用外部 CLI，生成 mock 输出。支持 `decision_script` 配置（按 state 访问次数返回不同 decision，演示状态机回流）
-- **ClaudeCLI**：调用 Claude CLI (`claude`)，解析 stream-json 输出提取 token usage / session_id
+- **ClaudeCLI**：调用 Claude CLI (`claude`)，解析 stream-json 输出提取 token usage / session_id。通过 `command` 配置可指定不同模型（如 Opus、DeepSeek、Haiku），provider 统一为 `claude`
 - **CodexCLI**：调用 Codex CLI (`codex exec`)，解析 JSONL 输出提取 thread_id / usage
+- **CommandAgent**：执行自定义 shell 命令。默认禁用（`enabled: false`），启用后命令需通过 `CommandValidator` 白名单安全检查，禁止 shell 元字符和危险操作
 - **安全拦截**：`_assert_safe_permission()` 拒绝 `--dangerouslyDisableSandbox` / `--permission-mode bypass`；`_assert_safe_sandbox()` 白名单限制 Codex `--sandbox` 值
 
 ---
@@ -396,7 +440,8 @@ tasks:
                                 #   直接引用 agents.yaml 中的 agent name
                                 #   不再通过 Role 间接寻址
 
-    input:                      # 输入产物流列表（可选）
+    input:                      # 输入产物流列表（可选，单数）
+                              #   YAML 中写 `input`，引擎加载后内部字段为 `inputs`
       - <artifact_name>         #   普通引用：当前最新版本
       - <artifact_name>:latest  #   显式引用最新版本
       - <artifact_name>:all     #   引用所有历史版本（用于回流节点）
@@ -599,6 +644,9 @@ agents:
 | `claude` | Claude CLI (`claude`) | 不适用 | `default` / `acceptEdits` / `plan` / `auto` |
 | `codex` | Codex CLI (`codex exec`) | `workspace-write` / `workspace-read` / `none` | 不适用 |
 | `mock` | MockAgent（不调用外部 CLI） | 不适用 | 不适用 |
+| `command` | CommandAgent（自定义 shell 命令） | 不适用 | 不适用 |
+
+> **注意**：`command` provider 默认 `enabled: false`，需显式开启。执行的命令需通过 `CommandValidator` 白名单安全检查。
 
 **Mock 模式**：当 agents.yaml 中找不到 task 引用的 agent 名时，自动 fallback 到 MockAgent。MockAgent 按 `mock_script.yaml` 中对应 state 的 decision 列表输出。
 
@@ -653,6 +701,8 @@ skill:
 2. `task.skills` 声明此 task 需要的 skill
 3. Runner 启动时加载所有 skill，生成 `skill_adoption_<state>.md` 产物
 4. Skill 正文注入 Agent prompt，作为行为约束
+
+**Skill 文件格式**：支持 `.yaml`、`.yml`、`.md`（含 YAML frontmatter）三种格式。加载时按优先级搜索：`{name}/skill.yaml` → `{name}.yaml` → `{name}.md` → `{name}/SKILL.md`。
 
 ---
 
@@ -1060,10 +1110,10 @@ agent-workflow validate-state-machine -w <workflow.yaml>
 
 ### 目录结构
 
-每次运行后 `.agent-workflow/runs/<run_id>/` 下的核心目录：
+每次运行后 `{run_root}/`（默认 `docs/runs/<run_id>/`）下的核心目录：
 
 ```
-.agent-workflow/runs/<run_id>/
+{run_root}/                          # 默认 docs/runs/<run_id>/
   staging/                        ← Agent 原始输出暂存区（按 state 分目录）
     plan/
       output.md                   # Agent 的原始输出
@@ -1133,11 +1183,11 @@ Agent 必须输出标准 JSON，核心字段：
 | Workflow | 链路 | 说明 |
 |----------|------|------|
 | `listing-dev` | plan → review → implement → audit → summary | 标准开发链，覆盖完整 SDLC |
-| `spec-dev` | planning → plan_review ⇄ plan_refinement → execution → output_review ⇄ output_refinement → validation → retrospective | 需求驱动开发，review/test 节点用 approve/revise/reject 条件回流 |
-| `req-analysis` | understand → review → advice | 需求分析链（单向，不执行代码） |
-| `requirement-understanding` | understand×3 → review×3 → consensus → clarification_questions → human_clarification_gate → final_requirement | 纯需求理解，多模型独立解读、交叉审查、人工澄清恢复 |
-| `system-architecture` | — | 系统架构设计链 |
-| `decision-collection` | — | 裁决收集链：指定 Markdown → 飞书 Base → 人工裁决 → 回收生成裁决包 |
+| `spec-dev` | planning → plan_review ⇄ plan_refinement → execution → output_review ⇄ output_refinement → validation → retrospective | 需求驱动开发，review/validation 节点用 approve/revise/reject 条件回流 |
+| `req-analysis` | understand_requirements → review_breakdown → give_advice | 需求分析链（单向，不执行代码） |
+| `requirement-understanding` | 三模型独立理解 → 三模型交叉审查 → 共识合并 → 澄清问题 → 人工裁决门 → 最终需求合成 | 纯需求理解，多模型独立解读、交叉审查、人工澄清恢复 |
+| `system-architecture` | gather_context → extract_drivers → structure_constraints_objectives → draft_architecture → evaluation_gate → conflict_revision → architecture_freeze | 七层架构设计：上下文收集 → 驱动因素 → 约束目标 → 草案 → 评估门 → 冲突修订 → 冻结+ADR |
+| `decision-collection` | collect_inputs → extract_decision_items → review_items → publish_to_lark_sheets → human_decision_gate → collect_sheets_results → synthesize_decision_package | 裁决收集链：收集 → 提取 → 审查 → 飞书发布 → 人工裁决 → 回收 → 合成裁决包 |
 
 ### 示例/学习工作流（Mock 模式可跑通）
 
@@ -1188,10 +1238,23 @@ agent-workflow continue \
 
 ### 选择建议
 
+```
+需要改代码？
+ ├── 是 → 需要多轮审核/条件回流？
+ │        ├── 是 → spec-dev（plan/output 双审核循环 + Gate 人工确认）
+ │        └── 否 → listing-dev（标准 SDLC：plan → review → implement → audit → summary）
+ └── 否 → 需要执行代码变更？
+          ├── 是 → req-analysis（理解需求、输出建议，不执行代码）
+          └── 否 → 需要多模型共识？
+                   ├── 是 → requirement-understanding（三模型理解 → 交叉审查 → Gate 澄清）
+                   └── 否 → 需要架构设计？ → system-architecture
+                         需要裁决收集？ → decision-collection
+```
+
 - **快速开始 / 学习编排**：从示例工作流 `plan-review-advise-execute-example` 开始，最简四阶段，Mock 模式零依赖
 - **理解 _loop**：读 `plan-review-advise-loop-example`，单循环展开 + 提前通过
 - **实际项目开发**：用 `listing-dev`，覆盖完整 SDLC（plan → review → implement → audit → summary）
-- **需求驱动开发**：用 `spec-dev`，review/test 节点条件回流 + Gate 人工确认
+- **需求驱动开发**：用 `spec-dev`，review/validation 节点条件回流 + Gate 人工确认
 - **需求分析（不改代码）**：用 `req-analysis`，理解需求后输出建议，不执行变更
 - **需求澄清（多模型共识）**：用 `requirement-understanding`，多模型独立理解后在 Gate 等待人工澄清
 - **并行开发多模块**：用 `/spec-wt`，每个模块独立 worktree 隔离
