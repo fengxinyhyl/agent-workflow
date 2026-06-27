@@ -99,6 +99,27 @@ def _build_dry_run_steps(
         },
     })
 
+    # 2.5 上次失败诊断（从事件日志分析失败原因）
+    from ..observability.jsonl_sink import read_log
+    from .retry_diagnose import diagnose_last_failure
+
+    events = read_log(context.run_id, run_root=context.run_root)
+    if not isinstance(events, list) or not events:
+        diagnosis = {
+            "kind": "unknown",
+            "reason": "无事件日志可供诊断",
+            "retry_recommended": True,
+            "detail": {},
+        }
+    else:
+        diagnosis = diagnose_last_failure(events)
+
+    steps.append({
+        "action": "diagnose_last_failure",
+        "status": "ok" if diagnosis.get("retry_recommended", True) else "would_block",
+        "detail": diagnosis,
+    })
+
     # 3. Guard 检查预览
     guard_config = workflow.guards
     guard_checks = []

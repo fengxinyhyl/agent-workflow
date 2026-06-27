@@ -1,2 +1,5 @@
 - [agent-workflow Windows 修复](agent-workflow-windows-fixes.md) — 编码/命令包裹/权限三类根因，引擎在 G:\agent-workflow
 - [Claude permission-mode 语义](claude-permission-mode-semantics.md) — acceptEdits/dontAsk/auto + allowedTools 实测行为
+- [记忆写项目目录](memory-location-project-dir.md) — 记忆写项目根 memory/，不是全局 .claude 目录
+- [预存测试技术债](preexisting-test-debt.md) — main 上 schema_contract + test_cancel 本就失败，评估回归先排除
+- [spec-dev 审核节点死循环](spec-dev-review-guard-loop.md) — output_review 易 revise 回流撞 max_visits，run failed 但代码常已产出

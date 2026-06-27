@@ -352,7 +352,9 @@ class Runner:
                 # 1. Guard 检查
                 guard_result = self.guard_checker.check(current_state, self.context)
                 if not guard_result.passed:
-                    self._get_event_bus().emit("GuardFailed", guard_result.__dict__)
+                    # 附带当前 state 便于 retry 诊断（GuardResult 自身不含 state 字段）
+                    _gf_payload = {**guard_result.__dict__, "state": current_state}
+                    self._get_event_bus().emit("GuardFailed", _gf_payload)
                     self._transition_to(guard_result.next_state_if_failed)
                     break
 

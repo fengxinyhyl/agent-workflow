@@ -472,12 +472,39 @@ def cmd_retry(args):
                 safe_print(f"  - {step['action']}: {step['status']}")
                 detail = step.get("detail", {})
                 if isinstance(detail, dict):
-                    for k, v in detail.items():
-                        if k == "operations":
-                            for op in v:
-                                safe_print(f"      • {op}")
-                        elif k == "next_states":
-                            safe_print(f"      {k}: {v}")
+                    # 诊断步骤特殊格式化
+                    if step['action'] == 'diagnose_last_failure':
+                        kind = detail.get("kind", "?")
+                        reason = detail.get("reason", "")
+                        retry_rec = detail.get("retry_recommended", True)
+                        safe_print(f"      kind: {kind}")
+                        safe_print(f"      retry_recommended: {retry_rec}")
+                        safe_print(f"      reason: {reason}")
+                        inner = detail.get("detail", {})
+                        if inner:
+                            if kind == "validator_block":
+                                errors = inner.get("errors", [])
+                                safe_print(f"      state: {inner.get('state', '?')}")
+                                if errors:
+                                    safe_print(f"      errors ({len(errors)}):")
+                                    for err in errors:
+                                        safe_print(f"        • {err}")
+                            elif kind in ("guard_loop", "guard_timeout"):
+                                safe_print(f"      state: {inner.get('state', '?')}")
+                                safe_print(f"      guard_type: {inner.get('guard_type', '?')}")
+                                safe_print(f"      current_value: {inner.get('current_value', '?')}")
+                                safe_print(f"      threshold: {inner.get('threshold', '?')}")
+                            elif kind == "agent_crash":
+                                safe_print(f"      state: {inner.get('state', '?')}")
+                                safe_print(f"      agent: {inner.get('agent', '?')}")
+                                safe_print(f"      task: {inner.get('task', '?')}")
+                    else:
+                        for k, v in detail.items():
+                            if k == "operations":
+                                for op in v:
+                                    safe_print(f"      • {op}")
+                            elif k == "next_states":
+                                safe_print(f"      {k}: {v}")
         else:
             final = result.get("final_state", "?")
             safe_print(f"[OK] 重试完成 → 终态: {final}")
@@ -554,6 +581,27 @@ def cmd_continue(args):
     except Exception as e:
         safe_print(f"[FAIL] continue 失败: {e}")
         return 1
+
+
+def cmd_history(args):
+    """查看运行事件因果时间线。"""
+    from .observability.history import render_history, render_why
+
+    run_root = _find_run_root(
+        args.run_id,
+        project_root=getattr(args, 'project_root', None) or None,
+        run_root_hint=getattr(args, 'run_root', None) or None,
+    )
+    if run_root is None:
+        safe_print(f"[FAIL] 未找到运行: {args.run_id}")
+        return 1
+
+    if args.why:
+        output = render_why(args.run_id, run_root, args.why)
+    else:
+        output = render_history(args.run_id, run_root, show_all=args.all)
+    safe_print(output)
+    return 0
 
 
 def cmd_cancel(args):
@@ -671,6 +719,15 @@ def build_parser():
     p.add_argument("--skills-dir", help="skills 目录（默认自动发现 workflow 同目录下的 skills/）")
     p.add_argument("--mock-script", help="mock decision 脚本 YAML（默认自动发现 workflow 同目录下的 mock_script.yaml，仅 mock 模式生效）")
     p.set_defaults(func=cmd_continue)
+
+    # history
+    p = sub.add_parser("history", help="查看运行事件因果时间线")
+    p.add_argument("--run-id", "-r", required=True, help="Run ID")
+    p.add_argument("--why", help="反查指定 state 的进入原因链")
+    p.add_argument("--all", action="store_true", help="显示全部事件（包括心跳/输出行）")
+    p.add_argument("--project-root", "-p", help="项目根目录（用于 run_index.json 发现）")
+    p.add_argument("--run-root", help="run_root 路径（直接指定）")
+    p.set_defaults(func=cmd_history)
 
     # cancel
     p = sub.add_parser("cancel", help="取消运行")

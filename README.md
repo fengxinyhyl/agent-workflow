@@ -58,6 +58,73 @@ agent-workflow cancel -r <run_id>     # 取消运行
 agent-workflow retry -r <run_id> [--dispatch]  # 重试
 ```
 
+### Claude Code 快捷命令
+
+在 Claude Code 中通过 `/` 前缀的快捷命令触发，无需手动拼写完整 CLI 参数。
+
+#### `/agent-workflow` — 工作流生命周期
+
+```text
+# 启动工作流（最常用）
+/agent-workflow <workflow> [-t <topic>] <goal...>
+
+# 预览/校验工作流
+/agent-workflow validate <workflow>
+
+# 查看运行状态
+/agent-workflow status <run_id>
+/agent-workflow explain <run_id>
+
+# 查看日志
+/agent-workflow log <run_id>
+/agent-workflow tail <run_id> <state> [lines]
+
+# 取消运行
+/agent-workflow cancel <run_id> [reason]
+
+# 重试（默认 dry-run，加 dispatch 真实执行）
+/agent-workflow retry <run_id> [dispatch]
+
+# 从 Gate 暂停恢复
+/agent-workflow continue <run_id> [approve]
+```
+
+**示例**：
+
+```text
+/agent-workflow listing-dev 实现用户登录功能
+/agent-workflow listing-dev -t add-login-page 实现用户登录功能
+/agent-workflow spec-dev -t refactor-auth 重构权限验证模块
+/agent-workflow validate spec-dev
+/agent-workflow tail 260626_listing-dev plan 80
+/agent-workflow retry 260626_listing-dev dispatch
+```
+
+#### `/spec-wt` — Worktree 隔离并行开发
+
+在**独立 git worktree** 中运行 `spec-dev` 工作流，实现多个并行开发的代码物理隔离——每个模块拥有独立工作目录和分支，互不覆盖。
+
+```text
+/spec-wt -t <module> [-b <branch>] <goal...>
+```
+
+| 参数 | 说明 |
+|------|------|
+| `-t <module>` | **必填**。模块名，用于 worktree 目录名、分支名、topic 命名 |
+| `-b <branch>` | 可选。分支名，省略时默认 `feat/<module>` |
+| `<goal>` | 要实现的目标描述 |
+
+**示例**：
+
+```text
+/spec-wt -t alert-center 实现告警中心页面
+/spec-wt -t audit-log -b feat/audit 实现审计日志查询
+```
+
+**机制**：在 `<repo>\..\aw-wt\<module>` 创建 worktree + `feat/<module>` 分支，`project_root` 指向 worktree、`run-root` 收口到主仓 `docs/runs/`。执行完成后展示 commit / merge / remove 指引（均需手动确认，不自动执行）。工作流失败时保留 worktree，支持从断点 `retry` 续跑。
+
+**恢复**：模块名与对应 worktree/分支的映射持久化在 `docs/worktree_map.json`，会话丢失后凭 run 数据可找回。
+
 ---
 
 ## Workflow 编排指南
@@ -890,14 +957,25 @@ Agent 必须输出标准 JSON，核心字段：
 
 ## 已有 Workflow 包
 
-| Workflow | 状态数 | 链路 | 特点 |
-|----------|--------|------|------|
-| `standard-dev` | 10 | plan → review → adoption → implement → code_audit → unit_test → summary | 标准开发全链路，含双回流（计划审核+代码审核） |
-| `spec-dev` | 11 | planning → plan_review ⇄ plan_refinement → execution → output_review ⇄ output_refinement → validation → retrospective | 需求驱动，review/test 节点用 approve/revise/reject 条件回流 |
-| `plan-review-advise-loop` | 7 | plan → review(×2) → advise(×2) → execute → summary | `_loop` 展开两轮审核，含提前通过机制 |
-| `plan-review-advise-execute` | 6 | plan → review → advise → execute | 通用四阶段链路，最小可用模板 |
-| `software-dev` | 10 | plan → review_plan → revise_plan → execute → audit → revise_execute → summary | P0 示例，独立 revise state 模式 |
-| `requirement-understanding` | 13 | understand×3 → review×3 → consensus → clarification_questions → human_clarification_gate → final_requirement | 纯需求理解，多模型独立解读、交叉审查、人工澄清恢复 |
+### 生产工作流（`/agent-workflow` 可直接使用）
+
+| Workflow | 链路 | 说明 |
+|----------|------|------|
+| `listing-dev` | plan → review → implement → audit → summary | 标准开发链，覆盖完整 SDLC |
+| `spec-dev` | planning → plan_review ⇄ plan_refinement → execution → output_review ⇄ output_refinement → validation → retrospective | 需求驱动开发，review/test 节点用 approve/revise/reject 条件回流 |
+| `req-analysis` | understand → review → advice | 需求分析链（单向，不执行代码） |
+| `requirement-understanding` | understand×3 → review×3 → consensus → clarification_questions → human_clarification_gate → final_requirement | 纯需求理解，多模型独立解读、交叉审查、人工澄清恢复 |
+| `system-architecture` | — | 系统架构设计链 |
+| `decision-collection` | — | 裁决收集链：指定 Markdown → 飞书 Base → 人工裁决 → 回收生成裁决包 |
+
+### 示例/学习工作流（Mock 模式可跑通）
+
+| Workflow | 链路 | 说明 |
+|----------|------|------|
+| `standard-dev-example` | plan → review → adoption → implement → code_audit → unit_test → summary | `standard-dev` 的演示版，含双回流 |
+| `plan-review-advise-loop-example` | plan → review(×2) → advise(×2) → execute → summary | `_loop` 展开两轮审核，含提前通过机制 |
+| `plan-review-advise-execute-example` | plan → review → advise → execute | 通用四阶段链路，最小可用模板 |
+| `software-dev-example` | plan → review_plan → revise_plan → execute → audit → revise_execute → summary | 独立 revise state 模式 |
 
 ### requirement-understanding 使用方式
 
@@ -939,11 +1017,13 @@ agent-workflow continue \
 
 ### 选择建议
 
-- **快速开始 / 学习编排**：从 `plan-review-advise-execute` 开始，最简四阶段
-- **理解 _loop**：读 `plan-review-advise-loop`，单循环展开
-- **理解条件回流开发流**：读 `spec-dev`，review/test 节点用 approve/revise/reject 驱动修订
-- **理解需求澄清流程**：读 `requirement-understanding`，多模型理解后在 Gate 等待人工澄清
-- **实际项目使用**：用 `standard-dev`，覆盖完整 SDLC
+- **快速开始 / 学习编排**：从示例工作流 `plan-review-advise-execute-example` 开始，最简四阶段，Mock 模式零依赖
+- **理解 _loop**：读 `plan-review-advise-loop-example`，单循环展开 + 提前通过
+- **实际项目开发**：用 `listing-dev`，覆盖完整 SDLC（plan → review → implement → audit → summary）
+- **需求驱动开发**：用 `spec-dev`，review/test 节点条件回流 + Gate 人工确认
+- **需求分析（不改代码）**：用 `req-analysis`，理解需求后输出建议，不执行变更
+- **需求澄清（多模型共识）**：用 `requirement-understanding`，多模型独立理解后在 Gate 等待人工澄清
+- **并行开发多模块**：用 `/spec-wt`，每个模块独立 worktree 隔离
 
 ---
 
@@ -969,11 +1049,19 @@ src/agent_workflow/
   context/                 # RunContext（可序列化到 workflow_state.json，支持断点续跑）+ AgentInput
   state/                   # 状态持久化与锁
 workflows/                 # Workflow 包（YAML 配置 + skills）
-  standard-dev/            # 标准开发全链路
-  spec-dev/                # 需求驱动开发（条件回流）
-  plan-review-advise-loop/ # 两轮审核循环
-  plan-review-advise-execute/ # 通用四阶段
-  software-dev/            # Plan → Review → Revise → Execute → Audit → Summary
+  listing-dev/              # 标准开发链
+  spec-dev/                 # 需求驱动开发（条件回流）
+  req-analysis/             # 需求分析链
+  requirement-understanding/ # 纯需求理解（多模型→澄清→Gate）
+  system-architecture/      # 系统架构设计
+  decision-collection/      # 裁决收集
+  standard-dev-example/     # 标准开发全链路示例
+  plan-review-advise-loop-example/   # 两轮审核循环示例
+  plan-review-advise-execute-example/ # 通用四阶段示例
+  software-dev-example/     # 独立 revise state 示例
+  .claude/commands/         # Claude Code 快捷命令定义
+    agent-workflow.md       #   /agent-workflow 命令
+    spec-wt.md              #   /spec-wt 命令
 tests/                     # 测试
 ```
 
