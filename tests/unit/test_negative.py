@@ -81,8 +81,8 @@ class TestTaskResultValidation:
         task_errors = [e for e in vr.errors if "task_id" in e]
         assert len(task_errors) > 0
 
-    def test_invalid_status_warning(self):
-        """无效 status → warning。"""
+    def test_invalid_status_error(self):
+        """无效 status → blocking error（Runtime v2: 纯函数化后升级为 error）。"""
         tr = _make_valid_task_result("test_state")
         tr.status = "unknown_status"
         result_dict = tr.to_dict()
@@ -91,11 +91,10 @@ class TestTaskResultValidation:
         validator = TaskResultValidator()
         vr = validator.validate(result_dict)
 
-        # status 无效是 warning，不是 error
-        status_warnings = [w for w in vr.warnings if "status" in w]
-        assert len(status_warnings) > 0
-        # 其他必需字段都有，所以 passed 应为 True
-        assert vr.passed
+        # status 无效是 error，passed=False
+        status_errors = [e for e in vr.errors if "status" in e]
+        assert len(status_errors) > 0
+        assert not vr.passed
 
     def test_invalid_decision_not_warned_by_runtime(self):
         """decision 合法性不再由 Runtime 全局白名单校验：未知 decision 不产生 warning。
@@ -115,8 +114,8 @@ class TestTaskResultValidation:
         assert len(decision_warnings) == 0
         assert vr.passed
 
-    def test_decision_not_in_allowed_decisions_warning(self):
-        """decision 不在 allowed_decisions → warning。"""
+    def test_decision_not_in_allowed_decisions_error(self):
+        """decision 不在 allowed_decisions → blocking error（Runtime v2: repairable=True）。"""
         tr = _make_valid_task_result("test_state", decision="approve")
         result_dict = tr.to_dict()
 
@@ -125,8 +124,10 @@ class TestTaskResultValidation:
         validator = TaskResultValidator(allowed_decisions=["done", "fail"])
         vr = validator.validate(result_dict)
 
-        allowed_warnings = [w for w in vr.warnings if "allowed_decisions" in w]
-        assert len(allowed_warnings) > 0
+        # decision 不在 allowed_decisions → errors（blocking）
+        allowed_errors = [e for e in vr.errors if "allowed_decisions" in e or "decision" in e]
+        assert len(allowed_errors) > 0
+        assert not vr.passed
 
 
 class TestArtifactPromotionNegative:

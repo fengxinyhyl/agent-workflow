@@ -380,26 +380,60 @@ class Runner:
                     # P0c: 写入 staging/<state>/task_result.json
                     self._write_task_result_json(current_state, task_result)
 
-                    # P0c: 校验 TaskResult + Artifact
-                    has_blocking, warnings_list = self._validate_task_result(
+                    # P0c: 校验 TaskResult + Artifact（Runtime v2: 三态 ValidResult）
+                    validation = self._validate_task_result(
                         task_result, current_state
                     )
 
-                    if has_blocking:
-                        # Blocking error → 拒绝 promotion，强制 fail
+                    if validation.valid:
+                        # 通过 → promote + 继续
+                        self._get_event_bus().emit("ValidatorFinished", {
+                            "state": current_state,
+                            "passed": True,
+                            "status_text": "OK",
+                            "warnings": validation.warnings,
+                            "timestamp": _now_iso(),
+                        })
+                        self._promote_artifacts(task_result)
+
+                    elif validation.repairable:
+                        # 可修复 → Repair 闸口（有界 1-2 次）
+                        self._get_event_bus().emit("ValidatorFinished", {
+                            "state": current_state,
+                            "passed": False,
+                            "status_text": "REPAIRABLE",
+                            "blocking": False,
+                            "errors": validation.errors,
+                            "reason": validation.reason,
+                            "timestamp": _now_iso(),
+                        })
+                        repaired_result, repaired_ok = self._repair_task_result(
+                            task_result, current_state, validation
+                        )
+                        task_result = repaired_result
+                        if repaired_ok:
+                            self._get_event_bus().emit("ValidatorFinished", {
+                                "state": current_state,
+                                "passed": True,
+                                "status_text": "OK (repaired)",
+                                "timestamp": _now_iso(),
+                            })
+                            self._promote_artifacts(task_result)
+                        # 否则：status 已在 _repair_task_result 中置为 failed，
+                        # decision=None，后续走 on_status 或 default → failed
+
+                    else:
+                        # 不可修复 → 直接 failed
                         self._get_event_bus().emit("ValidatorFinished", {
                             "state": current_state,
                             "passed": False,
                             "status_text": "FAIL",
                             "blocking": True,
-                            "errors": [
-                                e for e in self._last_validation_result.errors
-                            ] if hasattr(self, '_last_validation_result') else [],
+                            "errors": validation.errors,
                             "timestamp": _now_iso(),
                         })
-                        # 强制 decision 为 fail
-                        task_result.decision = "fail"
-                        task_result.status = "invalid_output"
+                        task_result.decision = None
+                        task_result.status = "failed"
                         from ..tasks.result import Issue
                         if not task_result.issues:
                             task_result.issues = []
@@ -407,25 +441,13 @@ class Runner:
                             Issue(
                                 severity="blocking",
                                 title="Validator blocking error",
-                                detail="TaskResult/Artifact 校验发现阻塞性错误，promotion 已拒绝",
+                                detail=f"校验不可修复: {validation.reason}",
                             ).to_dict() if hasattr(Issue, 'to_dict') else {
                                 "severity": "blocking",
                                 "title": "Validator blocking error",
-                                "detail": "TaskResult/Artifact 校验发现阻塞性错误，promotion 已拒绝",
+                                "detail": f"校验不可修复: {validation.reason}",
                             }
                         )
-                    else:
-                        # 校验通过或仅有 warning → 允许 promotion
-                        self._get_event_bus().emit("ValidatorFinished", {
-                            "state": current_state,
-                            "passed": True,
-                            "status_text": "OK",
-                            "warnings": warnings_list,
-                            "timestamp": _now_iso(),
-                        })
-
-                        # P0c: Promote artifacts（检查返回值）
-                        self._promote_artifacts(task_result)
 
                 # 5. 发射 TaskFinished（含耗时、token、agent 信息）
                 decision = task_result.get_decision() if task_result else "fail"
@@ -666,56 +688,48 @@ class Runner:
             })
         return summary
 
-    def _validate_task_result(self, task_result, state_name: str) -> tuple[bool, list[str]]:
-        """P0c: 校验 TaskResult 和 Artifact，返回 (has_blocking_errors, warnings)。
+    def _validate_task_result(self, task_result, state_name: str):
+        """Runtime v2: 三态校验 TaskResult 和 Artifact，返回 ValidResult。
 
-        Blocking errors: schema_version < 1, 缺少必需字段, execution metadata 缺失,
-                         artifact staging 文件不存在, artifact 路径逃逸
-        Warnings: 无效 status, 无效 decision, decision 不在 allowed_decisions
+        5 个步骤按序执行：
+        1. 纯函数数据校验（status/decision/必需字段）
+        2. Artifact staging 文件存在性校验 + 路径 containment 检查
+        3. staging_path 自动修正（跨树查找）
+        4. worktree 文件复制（复制到主仓 run_root）
+        5. artifact 路径非逃逸复查
 
-        Side effect: 将完整校验结果保存到 self._last_validation_result，
-        供 ValidatorFinished 事件读取具体 errors。
+        Side effect: 将 ValidResult 保存到 self._last_validation_result。
         """
-        has_blocking = False
-        all_errors: list[str] = []
-        all_warnings: list[str] = []
+        from ..validators.validation_result import ValidResult, RouteShape
+        from ..validators.task_result import validate as validate_tr
 
-        # 获取 state 的 allowed_decisions
-        task_model = None
         state = self.workflow.get_state(state_name)
+        task_model = None
         if state and state.task:
             task_model = self.workflow.get_task(state.task)
 
-        allowed_decisions = task_model.allowed_decisions if task_model else []
+        # 构建 RouteShape
+        route_shape = RouteShape(
+            has_on=bool(state.on) if state else False,
+            has_next=bool(state.next) if state else False,
+            allowed_decisions=tuple(task_model.allowed_decisions)
+                if task_model and task_model.allowed_decisions else (),
+        )
 
-        # 1. TaskResultValidator
-        try:
-            from ..validators.task_result import TaskResultValidator
-            tr_validator = TaskResultValidator(allowed_decisions=allowed_decisions)
-            validation_result = tr_validator.validate(task_result.to_dict())
+        # ── 步骤 1：纯函数数据校验 ──
+        vr: ValidResult = validate_tr(task_result.to_dict(), route_shape)
 
-            if validation_result.errors:
-                has_blocking = True
-                all_errors.extend(validation_result.errors)
-            if validation_result.warnings:
-                all_warnings.extend(validation_result.warnings)
-        except ImportError:
-            pass
-
-        # 2. ArtifactValidator — 对每个 artifact staging path 做文件级校验
+        # ── 步骤 2-5：文件系统校验 ──
+        # 复用现有 artifact staging 自动修正 + worktree 复制 + 路径 containment 逻辑
         try:
             from ..validators.artifact import ArtifactValidator
             av = ArtifactValidator()
             for artifact in task_result.get_artifacts():
                 staging_path = artifact.staging_path
-                # Agent 子进程 cwd = project_root（沙箱），其声明的相对 staging_path
-                # 基准是 agent 可写的 staging_root（worktree 模式 = project_root 沙箱，
-                # 普通模式 = run_root）。用 run_root 拼会跨树找不到文件。
                 if staging_path and not os.path.isabs(staging_path):
                     staging_path = os.path.join(self.context.staging_root, staging_path)
 
-                # 自动修正：文件不存在时，按 staging/{state}/{filename} 依次在
-                # staging_root（首选）、project_root（agent 沙箱）、run_root（主仓）下查找
+                # 自动修正：文件不存在时，按 staging/{state}/{filename} 依次查找
                 if staging_path and not os.path.exists(staging_path):
                     filename = os.path.basename(staging_path)
                     search_bases = []
@@ -729,26 +743,23 @@ class Runner:
                     for base in search_bases:
                         candidate = os.path.join(base, "staging", state_name, filename)
                         if os.path.exists(candidate):
-                            all_warnings.append(
+                            vr.warnings.append(
                                 f"staging_path 自动修正: {artifact.staging_path} -> {candidate}"
                             )
                             staging_path = candidate
                             break
 
-                # 回写绝对路径：确保后续 containment 检查与 promotion 不再二次拼接 run_root
+                # 回写绝对路径
                 if staging_path:
                     staging_path = os.path.abspath(staging_path)
                     if artifact.staging_path != staging_path:
                         artifact.staging_path = staging_path
-                        # 同步更新原始 TaskResult.artifacts 中的 dict（确保 promotion 可见）
                         for raw_a in task_result.artifacts:
                             if isinstance(raw_a, dict) and raw_a.get("name") == artifact.name:
                                 raw_a["staging_path"] = staging_path
                                 break
 
-                # 自动修正（worktree）：文件在 staging_path 存在但路径不在 run_root/staging 内。
-                # codex sandbox 等受限 agent 会将产物写入 worktree 而非主仓 run_root，
-                # 此处检测并复制到正确位置，避免后续路径逃逸检查误判为 blocking error。
+                # worktree 复制
                 if staging_path and os.path.exists(staging_path):
                     expected_dir = os.path.join(self.context.run_root, "staging", state_name)
                     staging_abs = os.path.abspath(staging_path)
@@ -762,44 +773,42 @@ class Runner:
                             old_path = staging_path
                             artifact.staging_path = expected_path
                             staging_path = expected_path
-                            # 同步更新原始 TaskResult.artifacts 中的 dict
                             raw_artifacts = task_result.artifacts
                             for j, raw_a in enumerate(raw_artifacts):
                                 if isinstance(raw_a, dict) and raw_a.get("name") == artifact.name:
                                     raw_a["staging_path"] = expected_path
                                     break
-                            all_warnings.append(
+                            vr.warnings.append(
                                 f"staging_path 从 worktree 复制到主仓: {old_path} -> {expected_path}"
                             )
                         except (OSError, IOError) as e:
-                            has_blocking = True
-                            all_errors.append(
-                                f"无法将 artifact 从 worktree 复制到主仓: {staging_path} -> {expected_path}: {e}"
+                            vr.valid = False
+                            vr.repairable = False
+                            vr.errors.append(
+                                f"无法将 artifact 从 worktree 复制到主仓: "
+                                f"{staging_path} -> {expected_path}: {e}"
                             )
 
+                # ArtifactValidator 文件存在性检查
                 ar = av.validate(staging_path)
                 if ar.errors:
-                    # artifact 文件缺失视为 blocking
-                    has_blocking = True
-                    all_errors.extend(ar.errors)
+                    vr.valid = False
+                    vr.repairable = False  # 文件缺失不可修复
+                    vr.errors.extend(ar.errors)
                 if ar.warnings:
-                    all_warnings.extend(ar.warnings)
+                    vr.warnings.extend(ar.warnings)
         except ImportError:
             pass
 
-        # 3. 路径 containment 检查（P0g 在 promotion.py 中也做，此处做提前检测）
+        # 路径 containment 检查
         try:
             from ..artifacts.promotion import _check_path_containment, _check_staging_sandbox
             for artifact in task_result.get_artifacts():
                 if artifact.staging_path and artifact.artifact_path:
-                    # staging 文件可能落在 agent 沙箱（project_root）或主仓（run_root）。
-                    # worktree 模式下两者是不同的树，故对两个根都接受，但必须含 staging 段。
                     staging_ok = _check_staging_sandbox(
                         artifact.staging_path,
                         [self.context.project_root, self.context.run_root],
                     )
-                    # artifact_path 可能是相对路径（如 "artifacts/plan_doc.md"），
-                    # 需先相对于 run_root 解析，否则 abspath 会以 CWD 为基准导致逃逸误判
                     artifact_full = artifact.artifact_path
                     if not os.path.isabs(artifact_full):
                         artifact_full = os.path.join(
@@ -810,25 +819,165 @@ class Runner:
                         os.path.join(self.context.run_root, "artifacts"),
                     )
                     if not staging_ok:
-                        has_blocking = True
-                        all_errors.append(
-                            f"staging 路径逃逸: {artifact.staging_path}"
-                        )
+                        vr.valid = False
+                        vr.repairable = False
+                        vr.errors.append(f"staging 路径逃逸: {artifact.staging_path}")
                     if not artifact_ok:
-                        has_blocking = True
-                        all_errors.append(
-                            f"artifact 路径逃逸: {artifact.artifact_path}"
-                        )
+                        vr.valid = False
+                        vr.repairable = False
+                        vr.errors.append(f"artifact 路径逃逸: {artifact.artifact_path}")
         except ImportError:
             pass
 
-        # 保存完整校验结果供 ValidatorFinished 事件使用
-        self._last_validation_result = type('_VR', (), {
-            'errors': all_errors,
-            'warnings': all_warnings,
-        })()
+        # ── 汇总 ──
+        if not vr.valid and not vr.reason:
+            vr.reason = f"校验失败: {'; '.join(vr.errors[:3])}"
 
-        return has_blocking, all_warnings
+        self._last_validation_result = vr
+        return vr
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Repair 编排（Runtime v2）
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def _call_agent_direct(
+        self, agent_input: AgentInput, state_name: str
+    ):
+        """直接调用 agent adapter + Parser，绕过 _execute_state。
+
+        不触发 StateEntered 事件、不触发 record_state_visit、不受 Guard 限制。
+        用于 Repair 场景中重新执行 Agent 获取修正后的输出。
+
+        Repair 与 guards.max_retries 协调机制（结构性隔离）：
+        - Repair 通过此方法调 Agent，不经过 _execute_state()。
+        - record_state_visit() 调用点在 _execute_state() 入口处 → Repair 不会触发。
+        - guards.max_retries 检查也在 _execute_state() 入口 → Repair 不会触发。
+        - 未来若有人将 record_state_visit 移到 _call_agent_direct 内部，
+          需在 code review 中标记此约束。
+        """
+        agent_name = agent_input.task.agent
+        return self._run_agent(agent_name, agent_input, state_name)
+
+    def _build_repair_agent_input(
+        self,
+        state_name: str,
+        original_task_result: TaskResult,  # noqa: F821
+        validation_result,
+        original_agent_input: AgentInput,
+    ) -> AgentInput:
+        """基于原始 AgentInput 构建 Repair 专用输入。
+
+        Repair prompt 明确约束：只允许重新输出 status 和 decision，
+        禁止修改 summary/issues/artifacts。
+        """
+        from ..validators.validation_result import ValidResult
+        from ..context.agent_input import TaskConfig as AgentTaskConfig
+
+        repair_instruction = (
+            f"你的上一次输出校验未通过。\n"
+            f"原因：{validation_result.reason}\n"
+            f"错误明细：{'; '.join(validation_result.errors)}\n\n"
+            f"请重新输出 TaskResult JSON，**只允许修改 status 和 decision 字段**。\n"
+            f"禁止修改 summary、issues、artifacts、execution 等其他字段。\n"
+            f"当前 decision 值：{original_task_result.decision}\n"
+            f"当前 status 值：{original_task_result.status}\n"
+        )
+
+        # 替换 task instruction 为 Repair prompt
+        repair_task = AgentTaskConfig(
+            name=original_agent_input.task.name,
+            instruction=repair_instruction,
+            agent=original_agent_input.task.agent,
+            inputs=original_agent_input.task.inputs,
+            output=original_agent_input.task.output,
+        )
+
+        return AgentInput(
+            task=repair_task,
+            context=original_agent_input.context,
+            state_name=state_name,
+            skill_context=original_agent_input.skill_context,
+            skill_policy=original_agent_input.skill_policy,
+            expected_task_result_schema=original_agent_input.expected_task_result_schema,
+            staging_paths=original_agent_input.staging_paths,
+        )
+
+    def _repair_task_result(
+        self,
+        task_result,
+        state_name: str,
+        validation_result,
+        max_attempts: int = 2,
+    ):
+        """Repair 编排：带反馈重新调用 Agent，最多 2 次。
+
+        Repair prompt 限定只重输出 status + decision。
+        每次 Repair 都走完整 Parser + Validator。
+        成功返回 (repaired_result, True)，耗尽返回 (result, False)。
+
+        Returns: (task_result, repaired_successfully: bool)
+        """
+        original_agent_input = getattr(self, '_last_agent_input', None)
+        if original_agent_input is None:
+            # 无 AgentInput 可供 Repair → 无法修复
+            task_result.status = "failed"
+            task_result.decision = None
+            from ..tasks.result import Issue
+            issue_dict = {
+                "severity": "blocking",
+                "title": "Repair unavailable",
+                "detail": "无 AgentInput 可供 Repair（_last_agent_input 未设置）",
+            }
+            if task_result.issues:
+                task_result.issues.append(issue_dict)
+            else:
+                task_result.issues = [issue_dict]
+            return task_result, False
+
+        for attempt in range(1, max_attempts + 1):
+            # 构建 Repair AgentInput
+            repair_input = self._build_repair_agent_input(
+                state_name, task_result, validation_result, original_agent_input
+            )
+
+            # 直接调用 Agent（绕过 _execute_state → 不触发 record_state_visit）
+            repaired_result = self._call_agent_direct(repair_input, state_name)
+
+            # 重新校验（完整 5 步）
+            vr2 = self._validate_task_result(repaired_result, state_name)
+
+            if vr2.valid:
+                # 修复成功
+                return repaired_result, True
+
+            if not vr2.repairable:
+                # 不可修复（如仍缺少必需字段）→ 不再重试
+                repaired_result.status = "failed"
+                repaired_result.decision = None
+                return repaired_result, False
+
+            # repairable 但 valid=False → 下一轮继续
+            validation_result = vr2
+            task_result = repaired_result
+
+        # 耗尽 → 置 failed + 取证
+        task_result.status = "failed"
+        task_result.decision = None
+        from ..tasks.result import Issue
+        issue_dict = {
+            "severity": "blocking",
+            "title": "Repair exhausted",
+            "detail": (
+                f"originally=invalid_output, "
+                f"repair_exhausted after {max_attempts} attempts, "
+                f"last_reason={validation_result.reason}"
+            ),
+        }
+        if task_result.issues:
+            task_result.issues.append(issue_dict)
+        else:
+            task_result.issues = [issue_dict]
+        return task_result, False
 
     def _execute_state(self, state_name: str):
         """执行一个 state 的 task。"""
@@ -937,6 +1086,9 @@ class Runner:
                 "matched_key": matched_key,
             })
         self._get_event_bus().emit("AgentStarted", agent_started_payload)
+
+        # 保存 agent_input 供后续 Repair 使用
+        self._last_agent_input = agent_input
 
         # 执行 Agent
         start_time = time.time()
