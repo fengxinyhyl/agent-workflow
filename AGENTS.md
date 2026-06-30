@@ -41,8 +41,16 @@ agent-workflow explain -r <run_id>
 agent-workflow log -r <run_id> --summary
 agent-workflow tail -r <run_id> -s <state> -n 80
 
+# 查看事件因果时间线（状态迁移 + TaskResult + promotion 链路）
+agent-workflow history -r <run_id>
+agent-workflow history -r <run_id> --why <state>   # 反查 state 进入原因
+
+# 从 Gate 暂停状态继续
+agent-workflow continue -r <run_id> -w <workflow.yaml> --approve
+agent-workflow continue -r <run_id> -w <workflow.yaml> --reject
+
 # 重试（默认 dry-run，加 --dispatch 真实执行）
-agent-workflow retry -r <run_id> [--dispatch]
+agent-workflow retry -r <run_id> [--dispatch] [--from-state <state>]
 
 # 取消运行
 agent-workflow cancel -r <run_id> --reason "..."
@@ -201,3 +209,49 @@ states:
 - `cancel` 通过写入 `cancelled` 标记文件实现，Runner 主循环每轮检查
 - `retry` 默认 dry-run，必须显式 `--dispatch` 才真实执行
 - 未知 decision → default transition → 通常到 `failed`（不会卡死）
+
+## 记忆系统
+
+重要发现、踩坑经验、项目约定应写入 memory 目录持久化，供后续会话参考。
+
+**目录位置：** 当前项目根目录下的 `memory/`
+
+### 何时写入
+
+遇到以下情况时写入 memory：
+- 发现非显而易见的项目约定或隐性知识（不在代码/文档中）
+- 踩坑经验：某种做法为何失败、某个错误模式如何识别
+- 用户明确的偏好、反馈、纠正（`feedback` 类型）
+- 跨 session 需要记住的架构决策背景
+
+**不要写入：** 代码结构、git 历史、CLAUDE.md 已覆盖的事实。
+
+### 文件格式
+
+每个 `.md` 文件记录一条事实，包含 frontmatter：
+
+```markdown
+---
+name: <short-kebab-case-slug>
+description: <一句话摘要，用于召回时判断相关性>
+metadata:
+  type: user | feedback | project | reference
+---
+
+<正文内容。反馈/项目类型结尾加 **Why:** 和 **How to apply:** 行>
+
+关联记忆用 [[name-slug]] 链接。
+```
+
+类型说明：
+- `user` — 用户角色、偏好、专业领域
+- `feedback` — 用户给出的纠正或确认的做法
+- `project` — 项目知识、陷阱、约定
+- `reference` — 外部资源（URL、文档入口、ticket）
+
+### 写入流程
+
+1. **查重**：检查 `MEMORY.md` 是否有已有文件覆盖该事实，有则更新而非新建
+2. **创建**：写入 `memory/<name>.md`，注意 frontmatter 完整
+3. **索引**：在 `MEMORY.md` 末尾添加 `- [标题](file.md) — 一句话摘要`
+4. **关联**：正文中用 `[[other-name]]` 链接相关记忆（目标不存在也没关系，标记了值得后续记录）

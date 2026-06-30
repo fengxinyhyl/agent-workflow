@@ -260,7 +260,9 @@ class Runner:
         )
 
         # 创建目录结构
-        os.makedirs(os.path.join(run_root, "staging"), exist_ok=True)
+        # staging 落在 agent 可写的 staging_root（worktree 模式 = project_root 沙箱），
+        # artifacts/logs 始终在主仓 run_root（恢复能力不依赖 staging 落点）。
+        os.makedirs(os.path.join(self.context.staging_root, "staging"), exist_ok=True)
         os.makedirs(os.path.join(run_root, "artifacts"), exist_ok=True)
         os.makedirs(os.path.join(run_root, "logs"), exist_ok=True)
 
@@ -353,7 +355,9 @@ class Runner:
                 # 1. Guard 检查
                 guard_result = self.guard_checker.check(current_state, self.context)
                 if not guard_result.passed:
-                    self._get_event_bus().emit("GuardFailed", guard_result.__dict__)
+                    # 附带当前 state 便于 retry 诊断（GuardResult 自身不含 state 字段）
+                    _gf_payload = {**guard_result.__dict__, "state": current_state}
+                    self._get_event_bus().emit("GuardFailed", _gf_payload)
                     self._transition_to(guard_result.next_state_if_failed)
                     break
 
@@ -596,7 +600,7 @@ class Runner:
     def _write_task_result_json(self, state_name: str, task_result):
         """P0c: 将 TaskResult 序列化写入 staging/<state>/task_result.json。"""
         try:
-            staging_dir = os.path.join(self.context.run_root, "staging", state_name)
+            staging_dir = os.path.join(self.context.staging_root, "staging", state_name)
             os.makedirs(staging_dir, exist_ok=True)
             tr_path = os.path.join(staging_dir, "task_result.json")
             with open(tr_path, "w", encoding="utf-8") as f:
@@ -704,28 +708,42 @@ class Runner:
             av = ArtifactValidator()
             for artifact in task_result.get_artifacts():
                 staging_path = artifact.staging_path
-                # 确保路径解析正确
+                # Agent 子进程 cwd = project_root（沙箱），其声明的相对 staging_path
+                # 基准是 agent 可写的 staging_root（worktree 模式 = project_root 沙箱，
+                # 普通模式 = run_root）。用 run_root 拼会跨树找不到文件。
                 if staging_path and not os.path.isabs(staging_path):
-                    staging_path = os.path.join(self.context.run_root, staging_path)
+                    staging_path = os.path.join(self.context.staging_root, staging_path)
 
-                # 自动修正：如果 staging_path 文件不存在，尝试预期路径 staging/{state_name}/{filename}
+                # 自动修正：文件不存在时，按 staging/{state}/{filename} 依次在
+                # staging_root（首选）、project_root（agent 沙箱）、run_root（主仓）下查找
                 if staging_path and not os.path.exists(staging_path):
                     filename = os.path.basename(staging_path)
-                    expected_path = os.path.join(
-                        self.context.run_root, "staging", state_name, filename
-                    )
-                    if os.path.exists(expected_path):
-                        all_warnings.append(
-                            f"staging_path 自动修正: {artifact.staging_path} -> {expected_path}"
-                        )
-                        # 更新 ArtifactRef
-                        artifact.staging_path = expected_path
-                        staging_path = expected_path
+                    search_bases = []
+                    for b in (
+                        self.context.staging_root,
+                        self.context.project_root,
+                        self.context.run_root,
+                    ):
+                        if b and b not in search_bases:
+                            search_bases.append(b)
+                    for base in search_bases:
+                        candidate = os.path.join(base, "staging", state_name, filename)
+                        if os.path.exists(candidate):
+                            all_warnings.append(
+                                f"staging_path 自动修正: {artifact.staging_path} -> {candidate}"
+                            )
+                            staging_path = candidate
+                            break
+
+                # 回写绝对路径：确保后续 containment 检查与 promotion 不再二次拼接 run_root
+                if staging_path:
+                    staging_path = os.path.abspath(staging_path)
+                    if artifact.staging_path != staging_path:
+                        artifact.staging_path = staging_path
                         # 同步更新原始 TaskResult.artifacts 中的 dict（确保 promotion 可见）
-                        raw_artifacts = task_result.artifacts
-                        for j, raw_a in enumerate(raw_artifacts):
+                        for raw_a in task_result.artifacts:
                             if isinstance(raw_a, dict) and raw_a.get("name") == artifact.name:
-                                raw_a["staging_path"] = expected_path
+                                raw_a["staging_path"] = staging_path
                                 break
 
                 # 自动修正（worktree）：文件在 staging_path 存在但路径不在 run_root/staging 内。
@@ -771,12 +789,14 @@ class Runner:
 
         # 3. 路径 containment 检查（P0g 在 promotion.py 中也做，此处做提前检测）
         try:
-            from ..artifacts.promotion import _check_path_containment
+            from ..artifacts.promotion import _check_path_containment, _check_staging_sandbox
             for artifact in task_result.get_artifacts():
                 if artifact.staging_path and artifact.artifact_path:
-                    staging_ok = _check_path_containment(
+                    # staging 文件可能落在 agent 沙箱（project_root）或主仓（run_root）。
+                    # worktree 模式下两者是不同的树，故对两个根都接受，但必须含 staging 段。
+                    staging_ok = _check_staging_sandbox(
                         artifact.staging_path,
-                        os.path.join(self.context.run_root, "staging"),
+                        [self.context.project_root, self.context.run_root],
                     )
                     # artifact_path 可能是相对路径（如 "artifacts/plan_doc.md"），
                     # 需先相对于 run_root 解析，否则 abspath 会以 CWD 为基准导致逃逸误判
@@ -867,9 +887,9 @@ class Runner:
                     task_skills=task_skills,
                     context=self.context,
                 )
-                # 写入 staging/<state>/skill_adoption.md
+                # 写入 staging/<state>/skill_adoption.md（落在 agent 沙箱 staging_root）
                 staging_adoption = self._adoption.write_adoption_artifact(
-                    self.context.run_root,
+                    self.context.staging_root,
                     state_name,
                     adopted_skills,
                 )
@@ -981,7 +1001,9 @@ class Runner:
                 pass
 
         # 构建 staging paths
-        staging_dir = os.path.join(self.context.run_root, "staging", state_name)
+        # 用 staging_root（agent 可写沙箱）而非 run_root：worktree 模式下 run_root
+        # 在主仓、agent 在 worktree，告知 run_root 路径 agent 写不进去。
+        staging_dir = os.path.join(self.context.staging_root, "staging", state_name)
         output_name = task_config.output or "output"
         staging_paths = {
             output_name: os.path.join(staging_dir, f"{output_name}.md"),
@@ -1034,8 +1056,8 @@ class Runner:
                 f"Agent '{agent_name}' 未注册且无 mock fallback",
             )
 
-        # 确保 staging 目录存在
-        staging_dir = os.path.join(self.context.run_root, "staging", state_name)
+        # 确保 staging 目录存在（agent 沙箱可写的 staging_root）
+        staging_dir = os.path.join(self.context.staging_root, "staging", state_name)
         os.makedirs(staging_dir, exist_ok=True)
 
         # 执行
@@ -1129,6 +1151,7 @@ class Runner:
                     artifact_path=versioned_path,
                     run_root=self.context.run_root,
                     artifact_name=artifact.name,
+                    staging_root=self.context.project_root,
                 )
                 if result.ok:
                     # 使用版本化 promote（保留完整版本链）

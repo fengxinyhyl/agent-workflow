@@ -141,7 +141,7 @@ def get_adoption_summary(context: RunContext) -> str:
         return ""
 
     adoption_path = os.path.join(
-        context.run_root, "staging", context.current_state, "skill_adoption.md"
+        context.staging_root, "staging", context.current_state, "skill_adoption.md"
     )
 
     if os.path.exists(adoption_path):

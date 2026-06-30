@@ -99,6 +99,27 @@ def _build_dry_run_steps(
         },
     })
 
+    # 2.5 上次失败诊断（从事件日志分析失败原因）
+    from ..observability.jsonl_sink import read_log
+    from .retry_diagnose import diagnose_last_failure
+
+    events = read_log(context.run_id, run_root=context.run_root)
+    if not isinstance(events, list) or not events:
+        diagnosis = {
+            "kind": "unknown",
+            "reason": "无事件日志可供诊断",
+            "retry_recommended": True,
+            "detail": {},
+        }
+    else:
+        diagnosis = diagnose_last_failure(events)
+
+    steps.append({
+        "action": "diagnose_last_failure",
+        "status": "ok" if diagnosis.get("retry_recommended", True) else "would_block",
+        "detail": diagnosis,
+    })
+
     # 3. Guard 检查预览
     guard_config = workflow.guards
     guard_checks = []
@@ -130,7 +151,7 @@ def _build_dry_run_steps(
         ops.append(f"清除 task_results['{retry_state}']")
     if context.get_attempt(retry_state) > 0:
         ops.append(f"重置 attempts['{retry_state}'] (当前 {context.get_attempt(retry_state)})")
-    staging_dir = os.path.join(context.run_root, "staging", retry_state)
+    staging_dir = os.path.join(context.staging_root, "staging", retry_state)
     if os.path.exists(staging_dir):
         ops.append(f"清理 {staging_dir}")
     if context.workflow_variables.get("_paused_at_gate"):
@@ -167,8 +188,8 @@ def _reset_state_for_retry(context: RunContext, state_name: str):
     context.workflow_variables.pop("_paused_at_gate", None)
     context.workflow_variables.pop("_run_status", None)
 
-    # 清理 staging 目录
-    staging_dir = os.path.join(context.run_root, "staging", state_name)
+    # 清理 staging 目录（agent 沙箱可写的 staging_root）
+    staging_dir = os.path.join(context.staging_root, "staging", state_name)
     if os.path.exists(staging_dir):
         shutil.rmtree(staging_dir)
 

@@ -61,6 +61,33 @@ class RunContext:
     started_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
 
+    @property
+    def staging_root(self) -> str:
+        """agent 可写的 staging 根目录。
+
+        普通模式下 run_root 在 project_root 内，agent（cwd=project_root）能直接写
+        run_root/staging，staging_root == run_root。
+
+        worktree 模式下 run_root 在主仓、project_root 在 worktree（两棵不同的树），
+        agent 被 `--add-dir` 沙箱锁在 project_root，**写不进主仓 run_root**。此时
+        staging 必须落在 agent 沙箱 project_root 之下，staging_root == project_root。
+
+        判据：run_root 是否在 project_root 之内。在内 → 普通模式；否则 → worktree。
+        artifacts 始终 promote 到 run_root/artifacts（恢复能力不依赖 staging 落点）。
+        """
+        if not self.project_root or not self.run_root:
+            return self.run_root
+        try:
+            pr = os.path.realpath(os.path.abspath(self.project_root))
+            rr = os.path.realpath(os.path.abspath(self.run_root))
+            # run_root 在 project_root 内 → commonpath == project_root（普通模式）
+            if os.path.commonpath([pr, rr]) == pr:
+                return self.run_root
+        except (ValueError, OSError):
+            # 不同盘符（Windows）等 → 必为不同树 → worktree 模式
+            pass
+        return self.project_root
+
     def touch(self):
         """更新 updated_at 时间戳。"""
         self.updated_at = _now_iso()

@@ -29,7 +29,7 @@ class CodexCLI(BaseAgent):
         command = self._resolve_command(agent_input)
 
         prompt = agent_input.build_prompt()
-        staging_dir = os.path.join(agent_input.context.run_root, "staging", state_name)
+        staging_dir = os.path.join(agent_input.context.staging_root, "staging", state_name)
         os.makedirs(staging_dir, exist_ok=True)
 
         if not shutil.which(command):

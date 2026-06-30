@@ -1,6 +1,76 @@
 # Agent Workflow
 
-通用 AI Agent 编排引擎。通过 **纯 YAML 配置** 驱动状态机，调度多个 AI Agent（Claude、Codex、DeepSeek）按预定义工作流协作。支持可观测性、产物流管理、断点续跑。
+通用 AI Agent 编排引擎。通过 **纯 YAML 配置** 驱动状态机，调度多个 AI Agent（Claude CLI、Codex CLI）按预定义工作流协作。支持可观测性、产物流管理、断点续跑。
+
+> **说明**：Agent 的 provider 类型有 `claude`、`codex`、`mock`、`command` 四种。Claude CLI adapter 通过 `command` 配置可调用不同模型（如 Opus、DeepSeek、Haiku），它们在 provider 层面统一为 `claude`。
+
+---
+
+## 快速概览
+
+| 维度 | 说明 |
+|------|------|
+| **做什么** | YAML 定义状态机 → 引擎调度 AI Agent 按工作流协作 → 产出自动物/日志/事件 |
+| **核心价值** | 零代码编排、多 Agent 协作、产物可追溯、断点可续跑 |
+| **适用场景** | 需求分析、方案设计、代码实现、代码审查、多模型交叉验证 |
+
+### 命令速查
+
+```bash
+# 启动与运行
+agent-workflow run        -w <workflow.yaml> -g "<目标>"    # 启动
+agent-workflow continue   -r <run_id> -w <workflow.yaml>     # 从 Gate 恢复
+agent-workflow cancel     -r <run_id>                        # 取消
+
+# 状态查看
+agent-workflow status     -r <run_id>       # 运行状态
+agent-workflow explain    -r <run_id>       # 解释当前等待项
+agent-workflow history    -r <run_id>       # 事件因果时间线
+agent-workflow log        -r <run_id> --summary  # 汇总日志
+agent-workflow tail       -r <run_id> -s <state>  # 节点日志
+
+# 故障恢复
+agent-workflow retry      -r <run_id> [--dispatch]   # 重试（默认 dry-run）
+
+# 校验与测试
+agent-workflow validate-config         -w <workflow.yaml>  # 校验配置
+agent-workflow validate-state-machine  -w <workflow.yaml>  # 校验状态机
+agent-workflow smoke      --agent <name>              # Agent 冒烟测试
+```
+
+### Claude Code 快捷命令速查
+
+```text
+/agent-workflow <workflow> [-t <topic>] <goal>    # 启动工作流
+/agent-workflow status|explain|log|history <run_id>    # 查看运行
+/agent-workflow tail <run_id> <state> [lines]     # 查看节点日志
+/agent-workflow retry <run_id> [dispatch]          # 重试
+/agent-workflow cancel <run_id> [reason]           # 取消
+/agent-workflow continue <run_id> [approve]        # 从 Gate 恢复
+/spec-wt -t <module> <goal>                        # Worktree 隔离并行开发
+```
+
+---
+
+## 快速开始
+
+```bash
+# 1. 安装
+pip install -e .
+
+# 2. 校验工作流
+agent-workflow validate-state-machine -w workflows/plan-review-advise-execute-example/workflow.yaml
+
+# 3. Mock 模式试跑（无需外部 CLI）
+agent-workflow run \
+  -w workflows/plan-review-advise-execute-example/workflow.yaml \
+  -g "实现一个 hello world" \
+  -p .
+
+# 4. 查看结果
+agent-workflow log -r <run_id> --summary
+agent-workflow history -r <run_id>
+```
 
 ---
 
@@ -16,13 +86,210 @@
 
 ---
 
-## 主要功能
+## CLI 命令参考
+
+### 工作流生命周期
+
+```bash
+# 启动工作流
+agent-workflow run -w <workflow.yaml> -g "<目标描述>" [-t <topic>] [-p <project_root>]
+
+# 运行时覆盖 agent（无需修改 YAML）
+# state: 优先级高于 task:，均高于 YAML 默认值
+agent-workflow run -w <workflow.yaml> -g "<目标描述>" \
+  --agent-map "task:review=cc-deepseek,state:review_r2=claude-haiku"
+
+# 从 Gate 暂停状态恢复
+agent-workflow continue -r <run_id> -w <workflow.yaml> --approve
+agent-workflow continue -r <run_id> -w <workflow.yaml> --reject
+
+# 注入人工澄清文件
+agent-workflow continue -r <run_id> -w <workflow.yaml> --approve --input human_clarification.md
+
+# 取消运行
+agent-workflow cancel -r <run_id> --reason "..."
+```
+
+### 状态查看
+
+```bash
+# 查看运行状态
+agent-workflow status -r <run_id>
+
+# 解释当前等待项（当前在哪个 state、为什么等待、后续可能走向）
+agent-workflow explain -r <run_id>
+
+# 查看事件因果时间线（状态迁移 + TaskResult + promotion 链路）
+agent-workflow history -r <run_id>
+
+# 反查指定 state 的进入原因链
+agent-workflow history -r <run_id> --why <state_name>
+
+# 显示全部事件（包括心跳、输出行等细节）
+agent-workflow history -r <run_id> --all
+
+# 查看汇总日志
+agent-workflow log -r <run_id> --summary
+
+# 查看完整事件日志
+agent-workflow log -r <run_id>
+
+# 查看指定节点的输出（默认 80 行）
+agent-workflow tail -r <run_id> -s <state> -n 80
+```
+
+### 运维与诊断
+
+```bash
+# 重试（默认 dry-run，仅预览不做实际执行）
+agent-workflow retry -r <run_id>
+
+# 从指定 state 开始重试
+agent-workflow retry -r <run_id> --from-state <state>
+
+# 真实执行重试
+agent-workflow retry -r <run_id> --dispatch
+
+# 重试时显式指定 workflow（用于自动发现 agents/skills）
+agent-workflow retry -r <run_id> --dispatch -w <workflow.yaml>
+```
+
+**`retry` 诊断输出说明**：
+
+dry-run 模式下会输出完整诊断信息和重试计划：
+- `diagnose_last_failure` — 分析失败原因（`validator_block` / `guard_loop` / `guard_timeout` / `agent_crash`）
+- `plan_rollback` — 规划回滚操作
+- `plan_execution` — 规划重新执行的 state 序列
+- `summary` — 汇总重试步骤
+
+**retry 工作流程**：`retry`（默认 dry-run）→ 查看诊断 → 确认无误 → `retry --dispatch` 真实执行。dispatch 模式下会从 `workflow_state.json` 恢复 RunContext 和 `_workflow_snapshot` 快照，自动发现 workflow 文件并重建 Runner，从中断点继续执行。
+
+```bash
+# 1. 先预览（dry-run）
+agent-workflow retry -r <run_id>
+
+# 2. 查看诊断
+agent-workflow history -r <run_id>
+agent-workflow explain -r <run_id>
+
+# 3. 确认后真实执行
+agent-workflow retry -r <run_id> --dispatch
+```
+
+**`--agent-map` 工作原理**：
+
+运行时覆盖 Agent 配置的字符串格式：`"state:状态名=agent名,task:任务名=agent名"`。
+
+- **解析优先级**：`state:xxx`（每状态级别）> `task:xxx`（每任务级别）> YAML 默认值
+- **格式校验（fail-fast）**：格式错误或引用不存在的 state/task/agent 时，直接拒绝启动
+- **典型用法**：为不同 review 轮次指定不同模型
+
+```bash
+# 语法
+agent-workflow run -w <workflow.yaml> -g "<目标>" \
+  --agent-map "state:<state_name>=<agent>,task:<task_name>=<agent>"
+
+# 示例：第一轮 review 用 DeepSeek，第二轮用 Haiku
+agent-workflow run -w workflows/plan-review-advise-loop-example/workflow.yaml \
+  -g "实现登录功能" \
+  --agent-map "state:review_r1=cc-deepseek,state:review_r2=claude-haiku"
+```
+
+```bash
+# 校验工作流配置
+agent-workflow validate-config -w <workflow.yaml>
+
+# 校验状态机完备性（检查 dead state、不可达路径等）
+agent-workflow validate-state-machine -w <workflow.yaml>
+
+# Agent 冒烟测试
+agent-workflow smoke --agent <agent_name> [--agents <agents.yaml>]
+```
+
+---
+
+## Claude Code 快捷命令
+
+在 Claude Code 中通过 `/` 前缀触发，无需手动拼写完整 CLI 参数。
+
+### `/agent-workflow` — 工作流生命周期
+
+```text
+# 启动工作流（最常用）
+/agent-workflow <workflow> [-t <topic>] <goal...>
+
+# 预览/校验工作流
+/agent-workflow validate <workflow>
+
+# 查看运行状态
+/agent-workflow status <run_id>
+/agent-workflow explain <run_id>
+
+# 查看事件因果时间线
+/agent-workflow history <run_id>
+/agent-workflow history <run_id> <state>    # 反查 state 进入原因
+
+# 查看日志
+/agent-workflow log <run_id>
+/agent-workflow tail <run_id> <state> [lines]
+
+# 取消运行
+/agent-workflow cancel <run_id> [reason]
+
+# 重试（默认 dry-run，加 dispatch 真实执行）
+/agent-workflow retry <run_id> [dispatch]
+
+# 从 Gate 暂停恢复
+/agent-workflow continue <run_id> [approve]
+```
+
+**示例**：
+
+```text
+/agent-workflow listing-dev 实现用户登录功能
+/agent-workflow listing-dev -t add-login-page 实现用户登录功能
+/agent-workflow spec-dev -t refactor-auth 重构权限验证模块
+/agent-workflow validate spec-dev
+/agent-workflow history 260626_listing-dev
+/agent-workflow history 260626_listing-dev plan     # 反查 plan 状态为何被进入
+/agent-workflow tail 260626_listing-dev plan 80
+/agent-workflow retry 260626_listing-dev dispatch
+```
+
+### `/spec-wt` — Worktree 隔离并行开发
+
+在**独立 git worktree** 中运行 `spec-dev` 工作流，实现多个并行开发的代码物理隔离——每个模块拥有独立工作目录和分支，互不覆盖。
+
+```text
+/spec-wt -t <module> [-b <branch>] <goal...>
+```
+
+| 参数 | 说明 |
+|------|------|
+| `-t <module>` | **必填**。模块名，用于 worktree 目录名、分支名、topic 命名 |
+| `-b <branch>` | 可选。分支名，省略时默认 `feat/<module>` |
+| `<goal>` | 要实现的目标描述 |
+
+**示例**：
+
+```text
+/spec-wt -t alert-center 实现告警中心页面
+/spec-wt -t audit-log -b feat/audit 实现审计日志查询
+```
+
+**机制**：在 `<repo>\..\aw-wt\<module>` 创建 worktree + `feat/<module>` 分支，`project_root` 指向 worktree、`run-root` 收口到主仓 `docs/runs/`。执行完成后展示 commit / merge / remove 指引（均需手动确认，不自动执行）。工作流失败时保留 worktree，支持从断点 `retry` 续跑。
+
+**恢复**：模块名与对应 worktree/分支的映射持久化在 `docs/worktree_map.json`，会话丢失后凭 run 数据可找回。
+
+---
+
+## 核心功能详解
 
 ### 核心能力
 
 - **YAML 驱动状态机**：无需写代码，一套 `workflow.yaml` 定义完整的 Agent 协作链路
 - **独立工作目录与并行隔离**：`--project-root` 为每个 run 指定独立工作目录，Agent 的执行目录（`cwd`）随之解析；配合 git worktree 可让多个 run 在各自工作树中并行执行、代码改动互不覆盖，`--run-root` 可将产物统一收口到指定目录
-- **多 Agent 编排**：支持 Claude CLI、Codex CLI、DeepSeek 等多个 Agent 在同一工作流中分工协作
+- **多 Agent 编排**：支持 Claude CLI、Codex CLI 等多个 Agent 在同一工作流中分工协作。Claude CLI 可通过 `command` 配置切换不同模型（Opus、DeepSeek、Haiku 等）
 - **TaskResult 契约**：标准化 JSON 输出，Agent 通过 `decision` 字段驱动状态迁移（如 `done`、`approve`、`revise`、`reject`）
 - **Staging → Artifacts 两阶段**：Agent 输出先入暂存区，校验通过后才提升为正式产物流，保证产物可靠性
 - **_loop 自动展开**：声明式循环块，引擎自动展开为 `_r1`/`_r2`/... 后缀的状态序列
@@ -33,30 +300,45 @@
 
 ### 可观测性
 
-- **EventBus** — 所有状态进入、TaskResult、promotion、错误等事件统一分发
-- **ConsoleSink** — 终端实时输出
-- **JSONLSink** — 结构化事件日志（`logs/events.jsonl`）
-- **Heartbeat** — 长时间运行心跳
-- **status / explain** — 查看运行状态、解释当前等待项
-- **log / tail** — 查看运行日志、按节点查看输出
+**基础设施**：
+- **EventBus** — 所有状态进入、TaskResult、promotion、错误等事件统一分发，支持多 sink 同时注册
+- **ConsoleSink** — 终端实时输出，任务完成时展示耗时/token/agent 汇总表
+- **JSONLSink** — 结构化事件日志写入 `events.jsonl`（每行一个 JSON 事件），每 50 条事件 flush 一次
+- **Heartbeat** — 后台 daemon 线程每 30 秒发射心跳事件，支持 stale 检测（5 分钟阈值）
 
-### CLI 命令
+**查询接口**（具体用法见 [CLI 命令参考](#cli-命令参考)）：
+- `status` — 当前 state、运行时长、心跳、产物列表
+- `explain` — 为何停在此处、allowed_decisions、可能的后续走向、Guard 状态
+- `history` — 事件因果时间线，支持 `--why` 反查指定 state 的进入原因链
+- `log / tail` — 汇总日志 / 按节点查看最近 N 行输出
 
-```bash
-agent-workflow validate-config        # 校验工作流配置
-agent-workflow validate-state-machine # 校验状态机完备性
-agent-workflow smoke --agent <name>   # Agent/Role 冒烟测试
-agent-workflow run -w <workflow.yaml> -g "<目标>"  # 启动工作流
-agent-workflow run -w <workflow.yaml> -g "<目标>" \
-  --agent-map "task:review=cc-deepseek,state:review_r2=claude-haiku"  # 运行时覆盖 agent
-agent-workflow status -r <run_id>     # 查看运行状态
-agent-workflow explain -r <run_id>    # 解释当前等待项
-agent-workflow log -r <run_id> --summary  # 查看汇总日志
-agent-workflow tail -r <run_id> -s <state> # 查看节点日志
-agent-workflow continue -r <run_id> -w <workflow.yaml> --approve --input <human_clarification.md>  # 从 Gate 恢复
-agent-workflow cancel -r <run_id>     # 取消运行
-agent-workflow retry -r <run_id> [--dispatch]  # 重试
+### 持久化存储
+
+运行产物默认存放在 `{project_root}/docs/runs/<run_id>/`（可通过 `--run-root` 自定义）。`.agent-workflow/durable/` 存放跨 run 的持久化恢复数据。
+
 ```
+{run_root}/                  # 默认: docs/runs/<run_id>/
+  staging/<state>/           # Agent 暂存输出
+  artifacts/                 # 正式产物流（promote 后）
+  logs/events.jsonl          # 事件日志
+  packets/                   # worker 调试副本
+  workflow_state.json        # RunContext 序列化（含 _workflow_snapshot 快照）
+  cancelled                  # 取消信号文件
+
+.agent-workflow/
+  durable/                   # 持久化恢复数据（独立于单次 run）
+    events/<id>.events.jsonl
+    registry/<id>.artifacts.jsonl
+    checkpoints/<id>.checkpoints.jsonl
+```
+
+### Agent 适配器
+
+- **MockAgent**：不调用外部 CLI，生成 mock 输出。支持 `decision_script` 配置（按 state 访问次数返回不同 decision，演示状态机回流）
+- **ClaudeCLI**：调用 Claude CLI (`claude`)，解析 stream-json 输出提取 token usage / session_id。通过 `command` 配置可指定不同模型（如 Opus、DeepSeek、Haiku），provider 统一为 `claude`
+- **CodexCLI**：调用 Codex CLI (`codex exec`)，解析 JSONL 输出提取 thread_id / usage
+- **CommandAgent**：执行自定义 shell 命令。默认禁用（`enabled: false`），启用后命令需通过 `CommandValidator` 白名单安全检查，禁止 shell 元字符和危险操作
+- **安全拦截**：`_assert_safe_permission()` 拒绝 `--dangerouslyDisableSandbox` / `--permission-mode bypass`；`_assert_safe_sandbox()` 白名单限制 Codex `--sandbox` 值
 
 ---
 
@@ -158,7 +440,8 @@ tasks:
                                 #   直接引用 agents.yaml 中的 agent name
                                 #   不再通过 Role 间接寻址
 
-    input:                      # 输入产物流列表（可选）
+    input:                      # 输入产物流列表（可选，单数）
+                              #   YAML 中写 `input`，引擎加载后内部字段为 `inputs`
       - <artifact_name>         #   普通引用：当前最新版本
       - <artifact_name>:latest  #   显式引用最新版本
       - <artifact_name>:all     #   引用所有历史版本（用于回流节点）
@@ -361,6 +644,9 @@ agents:
 | `claude` | Claude CLI (`claude`) | 不适用 | `default` / `acceptEdits` / `plan` / `auto` |
 | `codex` | Codex CLI (`codex exec`) | `workspace-write` / `workspace-read` / `none` | 不适用 |
 | `mock` | MockAgent（不调用外部 CLI） | 不适用 | 不适用 |
+| `command` | CommandAgent（自定义 shell 命令） | 不适用 | 不适用 |
+
+> **注意**：`command` provider 默认 `enabled: false`，需显式开启。执行的命令需通过 `CommandValidator` 白名单安全检查。
 
 **Mock 模式**：当 agents.yaml 中找不到 task 引用的 agent 名时，自动 fallback 到 MockAgent。MockAgent 按 `mock_script.yaml` 中对应 state 的 decision 列表输出。
 
@@ -415,6 +701,8 @@ skill:
 2. `task.skills` 声明此 task 需要的 skill
 3. Runner 启动时加载所有 skill，生成 `skill_adoption_<state>.md` 产物
 4. Skill 正文注入 Agent prompt，作为行为约束
+
+**Skill 文件格式**：支持 `.yaml`、`.yml`、`.md`（含 YAML frontmatter）三种格式。加载时按优先级搜索：`{name}/skill.yaml` → `{name}.yaml` → `{name}.md` → `{name}/SKILL.md`。
 
 ---
 
@@ -822,10 +1110,10 @@ agent-workflow validate-state-machine -w <workflow.yaml>
 
 ### 目录结构
 
-每次运行后 `.agent-workflow/runs/<run_id>/` 下的三个核心目录：
+每次运行后 `{run_root}/`（默认 `docs/runs/<run_id>/`）下的核心目录：
 
 ```
-.agent-workflow/runs/<run_id>/
+{run_root}/                          # 默认 docs/runs/<run_id>/
   staging/                        ← Agent 原始输出暂存区（按 state 分目录）
     plan/
       output.md                   # Agent 的原始输出
@@ -890,14 +1178,25 @@ Agent 必须输出标准 JSON，核心字段：
 
 ## 已有 Workflow 包
 
-| Workflow | 状态数 | 链路 | 特点 |
-|----------|--------|------|------|
-| `standard-dev` | 10 | plan → review → adoption → implement → code_audit → unit_test → summary | 标准开发全链路，含双回流（计划审核+代码审核） |
-| `spec-dev` | 11 | planning → plan_review ⇄ plan_refinement → execution → output_review ⇄ output_refinement → validation → retrospective | 需求驱动，review/test 节点用 approve/revise/reject 条件回流 |
-| `plan-review-advise-loop` | 7 | plan → review(×2) → advise(×2) → execute → summary | `_loop` 展开两轮审核，含提前通过机制 |
-| `plan-review-advise-execute` | 6 | plan → review → advise → execute | 通用四阶段链路，最小可用模板 |
-| `software-dev` | 10 | plan → review_plan → revise_plan → execute → audit → revise_execute → summary | P0 示例，独立 revise state 模式 |
-| `requirement-understanding` | 13 | understand×3 → review×3 → consensus → clarification_questions → human_clarification_gate → final_requirement | 纯需求理解，多模型独立解读、交叉审查、人工澄清恢复 |
+### 生产工作流（`/agent-workflow` 可直接使用）
+
+| Workflow | 链路 | 说明 |
+|----------|------|------|
+| `listing-dev` | plan → review → implement → audit → summary | 标准开发链，覆盖完整 SDLC |
+| `spec-dev` | planning → plan_review ⇄ plan_refinement → execution → output_review ⇄ output_refinement → validation → retrospective | 需求驱动开发，review/validation 节点用 approve/revise/reject 条件回流 |
+| `req-analysis` | understand_requirements → review_breakdown → give_advice | 需求分析链（单向，不执行代码） |
+| `requirement-understanding` | 三模型独立理解 → 三模型交叉审查 → 共识合并 → 澄清问题 → 人工裁决门 → 最终需求合成 | 纯需求理解，多模型独立解读、交叉审查、人工澄清恢复 |
+| `system-architecture` | gather_context → extract_drivers → structure_constraints_objectives → draft_architecture → evaluation_gate → conflict_revision → architecture_freeze | 七层架构设计：上下文收集 → 驱动因素 → 约束目标 → 草案 → 评估门 → 冲突修订 → 冻结+ADR |
+| `decision-collection` | collect_inputs → extract_decision_items → review_items → publish_to_lark_sheets → human_decision_gate → collect_sheets_results → synthesize_decision_package | 裁决收集链：收集 → 提取 → 审查 → 飞书发布 → 人工裁决 → 回收 → 合成裁决包 |
+
+### 示例/学习工作流（Mock 模式可跑通）
+
+| Workflow | 链路 | 说明 |
+|----------|------|------|
+| `standard-dev-example` | plan → review → adoption → implement → code_audit → unit_test → summary | `standard-dev` 的演示版，含双回流 |
+| `plan-review-advise-loop-example` | plan → review(×2) → advise(×2) → execute → summary | `_loop` 展开两轮审核，含提前通过机制 |
+| `plan-review-advise-execute-example` | plan → review → advise → execute | 通用四阶段链路，最小可用模板 |
+| `software-dev-example` | plan → review_plan → revise_plan → execute → audit → revise_execute → summary | 独立 revise state 模式 |
 
 ### requirement-understanding 使用方式
 
@@ -939,25 +1238,61 @@ agent-workflow continue \
 
 ### 选择建议
 
-- **快速开始 / 学习编排**：从 `plan-review-advise-execute` 开始，最简四阶段
-- **理解 _loop**：读 `plan-review-advise-loop`，单循环展开
-- **理解条件回流开发流**：读 `spec-dev`，review/test 节点用 approve/revise/reject 驱动修订
-- **理解需求澄清流程**：读 `requirement-understanding`，多模型理解后在 Gate 等待人工澄清
-- **实际项目使用**：用 `standard-dev`，覆盖完整 SDLC
+```
+需要改代码？
+ ├── 是 → 需要多轮审核/条件回流？
+ │        ├── 是 → spec-dev（plan/output 双审核循环 + Gate 人工确认）
+ │        └── 否 → listing-dev（标准 SDLC：plan → review → implement → audit → summary）
+ └── 否 → 需要执行代码变更？
+          ├── 是 → req-analysis（理解需求、输出建议，不执行代码）
+          └── 否 → 需要多模型共识？
+                   ├── 是 → requirement-understanding（三模型理解 → 交叉审查 → Gate 澄清）
+                   └── 否 → 需要架构设计？ → system-architecture
+                         需要裁决收集？ → decision-collection
+```
+
+- **快速开始 / 学习编排**：从示例工作流 `plan-review-advise-execute-example` 开始，最简四阶段，Mock 模式零依赖
+- **理解 _loop**：读 `plan-review-advise-loop-example`，单循环展开 + 提前通过
+- **实际项目开发**：用 `listing-dev`，覆盖完整 SDLC（plan → review → implement → audit → summary）
+- **需求驱动开发**：用 `spec-dev`，review/validation 节点条件回流 + Gate 人工确认
+- **需求分析（不改代码）**：用 `req-analysis`，理解需求后输出建议，不执行变更
+- **需求澄清（多模型共识）**：用 `requirement-understanding`，多模型独立理解后在 Gate 等待人工澄清
+- **并行开发多模块**：用 `/spec-wt`，每个模块独立 worktree 隔离
 
 ---
 
-## 安装
+## 安装与项目结构
+
+### 安装
 
 ```bash
 pip install -e .
 ```
 
-## 项目结构
+### 运行测试
+
+```bash
+# 运行全部测试
+cd agent-workflow
+$env:PYTHONPATH='src;.'; pytest tests -q
+
+# 运行单个测试文件
+$env:PYTHONPATH='src;.'; pytest tests/unit/test_state_machine.py -q
+
+# 运行单个测试方法
+$env:PYTHONPATH='src;.'; pytest tests/unit/test_task_result_v4.py::TestTaskResult::test_create_valid -q
+
+# 只运行单元测试
+$env:PYTHONPATH='src;.'; pytest tests/unit/ -q
+```
+
+`pyproject.toml` 已配置 `testpaths = ["tests"]` 和 `timeout = 300`。
+
+### 项目结构
 
 ```
 src/agent_workflow/
-  cli.py                   # CLI 入口（11 个子命令）
+  cli.py                   # CLI 入口（12 个子命令）
   config/                  # YAML 配置模型 (TaskModel/StateModel/AgentModel/GuardModel/WorkflowConfig) 与加载器
   state_machine/           # StateMachine、Runner（主循环）、Transition、Guard、Retry
   tasks/                   # TaskResult（标准化 Agent 输出）、result_schema（JSON Schema 生成）
@@ -965,14 +1300,142 @@ src/agent_workflow/
   artifacts/               # Staging 暂存、Promotion、Resolver
   skills/                  # Skill 模型、YAML/Markdown 加载、Adoption 协议、Policy 解析
   validators/              # TaskResult / Artifact / Repo / Command 校验器
-  observability/           # EventBus、ConsoleSink、JSONLSink、Heartbeat、status、explain
+  observability/           # EventBus、ConsoleSink、JSONLSink、Heartbeat、status、explain、history
   context/                 # RunContext（可序列化到 workflow_state.json，支持断点续跑）+ AgentInput
   state/                   # 状态持久化与锁
 workflows/                 # Workflow 包（YAML 配置 + skills）
-  standard-dev/            # 标准开发全链路
-  spec-dev/                # 需求驱动开发（条件回流）
-  plan-review-advise-loop/ # 两轮审核循环
-  plan-review-advise-execute/ # 通用四阶段
-  software-dev/            # Plan → Review → Revise → Execute → Audit → Summary
+  listing-dev/              # 标准开发链
+  spec-dev/                 # 需求驱动开发（条件回流）
+  req-analysis/             # 需求分析链
+  requirement-understanding/ # 纯需求理解（多模型→澄清→Gate）
+  system-architecture/      # 系统架构设计
+  decision-collection/      # 裁决收集
+  standard-dev-example/     # 标准开发全链路示例
+  plan-review-advise-loop-example/   # 两轮审核循环示例
+  plan-review-advise-execute-example/ # 通用四阶段示例
+  software-dev-example/     # 独立 revise state 示例
+  .claude/commands/         # Claude Code 快捷命令定义
+    agent-workflow.md       #   /agent-workflow 命令
+    spec-wt.md              #   /spec-wt 命令
 tests/                     # 测试
 ```
+
+---
+
+## 未来演进路线（2026–2028）
+
+未来两年的演进围绕一个核心命题：**从"配置驱动的状态机"升级为"事件驱动的 Agent 操作系统"**。以下按优先级排列。
+
+### 1. Event History（事件溯源）— 最高优先级
+
+> 从"保存状态快照"升级到"保存事件流"，让整个 Runtime 可 Replay、可审计、可精准恢复。
+
+当前 `workflow_state.json` 保存的是状态快照——断点续跑只能恢复到快照时刻，无法重现"中间发生了什么"。Event History 将每个状态迁移、TaskResult、promotion、guard 触发作为不可变事件追加写入，状态本身从事件流重建（Event Sourcing）。
+
+**目标能力：**
+
+- **完整审计追踪**：任意 run 的每一步决策、产物变更、异常都可追溯到具体事件
+- **时间旅行调试**：从事件流重放到任意时刻，复现 Agent 行为和状态迁移
+- **精准断点恢复**：不再依赖快照时间点，从事件流重建到中断前最后一刻
+- **跨 run 分析**：基于事件流做 Agent 性能分析、决策质量统计、异常模式识别
+
+**关键设计决策：**
+- 事件不可变，只追加不修改
+- `workflow_state.json` 从事件流派生（materialized view），不再作为 source of truth
+- 事件 schema 向后兼容，支持版本演进
+
+### 2. Artifact Registry（产物流注册中心）
+
+> 让 Artifact 成为一等对象，而不是依赖固定文件名和目录。
+
+当前 Artifact 通过约定路径（`artifacts/<name>.md`）引用，类型信息散落在 `outputs.yaml`、`task.output`、`TaskResult.artifacts` 中，缺乏统一的元数据模型和查询能力。
+
+**目标能力：**
+
+- **Artifact 元数据注册**：每个 artifact 有唯一 ID、类型、版本链、producer task、checksum、创建时间
+- **版本语义**：支持 semver 式版本（major/minor/patch），不只是 `-v1`/`-v2` 后缀
+- **依赖图**：artifact 之间的溯源关系（哪个 task 生产了它，哪些 task 消费了它）
+- **内容寻址**：通过 checksum 去重和完整性校验
+- **查询接口**：`registry.list(type="markdown", produced_by="plan")` 而非硬编码路径
+
+**关键设计决策：**
+- Artifact 元数据存储于 `durable/registry/`，独立于单次 run
+- 文件路径从元数据派生，而非元数据从路径派生
+- 与 Event History 打通：artifact promotion 作为事件记录
+
+### 3. Policy Engine（可插拔策略引擎）
+
+> 把 Validator 泛化为可插拔策略系统，覆盖质量、安全、成本、权限等维度。
+
+当前 `validators/` 模块是硬编码的校验逻辑（TaskResult schema、artifact 路径 containment）。Policy Engine 将其抽象为声明式策略规则，按 scope（全局/workflow/task/state）组合，支持启用/禁用和自定义。
+
+**目标能力：**
+
+- **质量策略**：TaskResult schema 校验、artifact 完整性、输出格式合规
+- **安全策略**：路径 containment、命令白名单、敏感信息泄露检测、sandbox 约束
+- **成本策略**：token 预算上限、单 task 超时强制、run 级别花费告警
+- **权限策略**：Agent 工具白名单、provider 约束、permission mode 强制
+- **自定义策略**：用户通过 YAML 或 Python 插件注册自定义规则
+
+**关键设计决策：**
+- 策略定义沿用 YAML，与 workflow 配置一致的体验
+- 策略评估结果分 `pass / warn / block` 三级，`warn` 不阻断但记录
+- 支持 policy set 复用（多 workflow 共享同一套策略）
+
+### 4. Goal → Workflow 动态生成
+
+> 让 Workflow 本身可以由 Planner 动态生成，而不是完全静态 YAML。
+
+当前 Workflow 完全由人工编写 YAML 定义，适合标准化流程但无法应对开放式的、需要动态规划的任务。Goal → Workflow 生成让一个 Planner Agent 根据目标描述自动生成 workflow 定义，再交由引擎执行。
+
+**目标能力：**
+
+- **意图解析**：输入自然语言目标，Planner 分解为 task 序列和决策分支
+- **Workflow 合成**：动态生成合法的 workflow.yaml（含 state 图、task 定义、skill 匹配）
+- **增量规划**：执行中遇到 blocked 时，Planner 动态插入新 state 或调整后续链路
+- **模板实例化**：从预定义 workflow 模板库中选择并参数化
+- **人工审批 Gate**：生成的 workflow 在关键分支设 Gate 暂停，由人工确认后继续
+
+**关键设计决策：**
+- 生成的 workflow 持久化为文件，可审计、可版本控制、可手动修正
+- 动态生成不替代静态 YAML——标准化流程仍用静态配置，开放任务用动态生成
+- Planner 本身也是 Agent（服从 TaskResult 契约），其输出是 workflow 定义
+
+### 5. Knowledge Graph（知识图谱）
+
+> 统一 Ledger、Evidence、Experiment、Memory，让 Agent 查询知识对象而不是文档。
+
+当前 Skill 系统注入的是静态 Markdown 正文，Agent 缺乏对跨 run 积累的经验、实验结论、决策记录的查询能力。Knowledge Graph 将这些知识抽象为可查询的实体和关系。
+
+**目标能力：**
+
+- **Ledger（账本）**：跨 run 的决策记录——什么决策在什么上下文下做出了什么结果
+- **Evidence（证据）**：产物流中的关键事实、度量数据、测试结果的语义索引
+- **Experiment（实验）**：A/B 方案对比、技术选型分析的结构化记录
+- **Memory（记忆）**：项目级和 org 级的经验积累，自动衰减和去重
+- **语义查询**：Agent 在执行 task 时可以查询"类似场景下历史上做了什么决策、结果如何"
+
+**关键设计决策：**
+- 底层用图模型（实体 + 关系 + 属性），不依赖向量数据库
+- 知识的写入由 Policy Engine 的策略触发（如"所有 `approve` 决策自动写入 Ledger"）
+- 知识的查询通过 Agent 工具暴露（`query_knowledge("类似场景的决策记录")`），而不是注入 prompt
+- 与 Event History、Artifact Registry 深度集成——事件和 artifact 是知识的主要来源
+
+### 演进路线总览
+
+```
+2026 H2 ──── 2027 H1 ──── 2027 H2 ──── 2028 H1 ──── 2028 H2
+  │            │            │            │            │
+Event        Event       Artifact     Policy      Knowledge
+History ◄──── History    Registry ◄─── Engine ◄──── Graph
+  │          (完成)        │          (完成)        │
+  │                       │                        │
+  └─ Goal → Workflow ────┘                        │
+         (与 Event History                       │
+          并行启动)                               │
+```
+
+- **Event History** 是基础——所有后续能力依赖事件流作为数据来源
+- **Artifact Registry** 和 **Goal → Workflow** 可并行推进
+- **Policy Engine** 依赖 Registry 提供 artifact 元数据
+- **Knowledge Graph** 是最终形态——消费 Event History、Artifact Registry 和 Policy Engine 的输出，构建跨 run 的语义层
