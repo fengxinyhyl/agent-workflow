@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import time
 import threading
 import uuid
@@ -726,6 +727,37 @@ class Runner:
                             if isinstance(raw_a, dict) and raw_a.get("name") == artifact.name:
                                 raw_a["staging_path"] = expected_path
                                 break
+
+                # 自动修正（worktree）：文件在 staging_path 存在但路径不在 run_root/staging 内。
+                # codex sandbox 等受限 agent 会将产物写入 worktree 而非主仓 run_root，
+                # 此处检测并复制到正确位置，避免后续路径逃逸检查误判为 blocking error。
+                if staging_path and os.path.exists(staging_path):
+                    expected_dir = os.path.join(self.context.run_root, "staging", state_name)
+                    staging_abs = os.path.abspath(staging_path)
+                    expected_abs = os.path.abspath(expected_dir)
+                    if not staging_abs.startswith(expected_abs + os.sep) and staging_abs != expected_abs:
+                        filename = os.path.basename(staging_path)
+                        expected_path = os.path.join(expected_dir, filename)
+                        try:
+                            os.makedirs(expected_dir, exist_ok=True)
+                            shutil.copy2(staging_path, expected_path)
+                            old_path = staging_path
+                            artifact.staging_path = expected_path
+                            staging_path = expected_path
+                            # 同步更新原始 TaskResult.artifacts 中的 dict
+                            raw_artifacts = task_result.artifacts
+                            for j, raw_a in enumerate(raw_artifacts):
+                                if isinstance(raw_a, dict) and raw_a.get("name") == artifact.name:
+                                    raw_a["staging_path"] = expected_path
+                                    break
+                            all_warnings.append(
+                                f"staging_path 从 worktree 复制到主仓: {old_path} -> {expected_path}"
+                            )
+                        except (OSError, IOError) as e:
+                            has_blocking = True
+                            all_errors.append(
+                                f"无法将 artifact 从 worktree 复制到主仓: {staging_path} -> {expected_path}: {e}"
+                            )
 
                 ar = av.validate(staging_path)
                 if ar.errors:

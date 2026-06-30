@@ -55,10 +55,10 @@ class TaskResultValidator(BaseValidator):
         if decision and decision not in VALID_DECISIONS:
             result.add_warning(f"无效 decision: '{decision}'，允许值: {VALID_DECISIONS}")
 
-        # 5. allowed_decisions 检查
+        # 5. allowed_decisions 检查（blocking: 无效 decision 直接阻断，避免静默落入 default failed）
         if self.allowed_decisions and decision not in self.allowed_decisions:
-            result.add_warning(
-                f"decision '{decision}' 不在 allowed_decisions {self.allowed_decisions} 中，将走 default"
+            result.add_error(
+                f"decision '{decision}' 不在 allowed_decisions {self.allowed_decisions} 中"
             )
 
         # 6. execution metadata
