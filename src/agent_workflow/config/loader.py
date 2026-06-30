@@ -182,6 +182,34 @@ def load_guard(data: dict[str, Any]) -> GuardModel:
     )
 
 
+def _reroute_state_refs(
+    state: StateModel,
+    loop_state_names: set[str],
+    reroute_map: dict[str, str],
+) -> StateModel:
+    """根据 reroute_map 修正 StateModel 的所有路由字段引用。
+
+    处理字段：next, on, on_status, default。
+    不修改：name, task, description, terminal, gate。
+    """
+    def _fix(target: str) -> str:
+        if not target:
+            return ""
+        return reroute_map.get(target, target)
+
+    return StateModel(
+        name=state.name,
+        task=state.task,
+        next=_fix(state.next) if state.next else "",
+        on={d: _fix(t) for d, t in (state.on or {}).items()},
+        on_status={s: _fix(t) for s, t in (state.on_status or {}).items()},
+        default=_fix(state.default),
+        description=state.description,
+        terminal=state.terminal,
+        gate=state.gate,
+    )
+
+
 def _unroll_single_loop(
     resolved: dict[str, Any],
     states: dict[str, StateModel],
@@ -189,7 +217,15 @@ def _unroll_single_loop(
 ) -> dict[str, StateModel]:
     """展开单个 _loop 块为线性 state 序列。
 
-    内部函数，由 _unroll_loops() 对每个 loop 块调用。
+    前置条件（调用者责任）：
+    - states 中的每个 StateModel 必须已经过 _normalize_state 归一化，
+      即 done→next、fail/blocked→on_status、业务词保留在 on
+    - 此函数依赖 next/on/on_status 的三段式结构来区分节点角色
+
+    展开规则：
+    - 线性节点（state.next 非空）：next 指向同轮下一个 state
+    - 分支节点（state.on 非空）：遍历 on 的每项 → 在循环内则回跳，在循环外则保留
+    - 最后一轮：所有循环内 decision 删除（落 default），确保不产生无意义回跳
     """
     loop_state_names: list[str] = loop_block.get("states", [])
     repeat: int = loop_block.get("repeat", 1)
@@ -220,78 +256,87 @@ def _unroll_single_loop(
             base_state = states[base_name]
             round_name = f"{base_name}_r{r}"
 
-            # 复制原始 state 的 on 映射，后续会修正 transition 目标
+            # 复制路由字段，后续按节点角色修正目标
             on = dict(base_state.on) if base_state.on else {}
+            on_status = dict(base_state.on_status) if base_state.on_status else {}
+            next_state: str = ""  # 线性节点的 next 目标
 
             is_last_state_in_round = (i == len(loop_state_names) - 1)
             is_last_round = (r == repeat)
 
             if is_last_state_in_round:
-                # ── 轮次最后一个 state（如 advise、refinement）──
+                # ── 轮次最后一个 state（分支/决策节点）──
                 if is_last_round:
-                    # 最后一轮：移除 revise，所有指向循环内的决策 → on_break
-                    on.pop("revise", None)
-                    for decision in list(on.keys()):
-                        if on[decision] in loop_state_names or on[decision] == base_name:
-                            on[decision] = on_break
-                    if "approve" not in on:
-                        on["approve"] = on_break
+                    # 最后一轮：删除所有指向循环内的 decision（通用逻辑，不硬编码键名）
+                    for decision, target in list(on.items()):
+                        if target in loop_state_names or target == base_name:
+                            del on[decision]
+                    # 安全保障：删除后 on 为空时，补一个出口指向 on_break
+                    if not on and on_break:
+                        on["done"] = on_break
+                    # on_status：修正循环内引用为同轮 _r 版本
+                    for status_key, target in list(on_status.items()):
+                        if target in loop_state_names:
+                            on_status[status_key] = f"{target}_r{r}"
                 else:
-                    # 前 N-1 轮：所有指向循环内的决策 → 下一轮首个 state
+                    # 前 N-1 轮：所有指向循环内的 decision → 下一轮首 state
                     next_first = f"{loop_state_names[0]}_r{r + 1}"
-                    has_loop_back = False
-                    for decision in list(on.keys()):
-                        if on[decision] in loop_state_names:
+                    for decision, target in list(on.items()):
+                        if target in loop_state_names or target == base_name:
                             on[decision] = next_first
-                            has_loop_back = True
-                    # 若原始 state 未定义任何循环回跳决策，自动添加 revise（向后兼容）
-                    if not has_loop_back:
-                        on["revise"] = next_first
-                    # 确保 approve → on_break（允许提前通过）
-                    if "approve" not in on:
-                        on["approve"] = on_break
+                    # on_status 中指向循环内的 → 下一轮首 state
+                    for status_key, target in list(on_status.items()):
+                        if target in loop_state_names:
+                            on_status[status_key] = next_first
             else:
-                # ── 非轮次最后一个 state ──
-                # done 及任意指向循环内的决策 → 同轮次下一个 state
+                # ── 非轮次最后一个 state（线性节点或提前的分支节点）──
                 next_in_round = f"{loop_state_names[i + 1]}_r{r}"
-                for decision in list(on.keys()):
-                    if on[decision] in loop_state_names:
-                        on[decision] = next_in_round
-                on["done"] = next_in_round
+                if base_state.next:
+                    # 线性节点：next 指向同轮下一个 state
+                    next_state = next_in_round
+                if on:
+                    # 分支节点：所有指向循环内的 decision → 同轮下一个 state
+                    for decision, target in list(on.items()):
+                        if target in loop_state_names:
+                            on[decision] = next_in_round
+                # on_status：非最后一轮 → 下一轮首 state，最后一轮 → 同轮 _r 版本
+                if on_status:
+                    if is_last_round:
+                        for status_key, target in list(on_status.items()):
+                            if target in loop_state_names:
+                                on_status[status_key] = f"{target}_r{r}"
+                    else:
+                        next_first = f"{loop_state_names[0]}_r{r + 1}"
+                        for status_key, target in list(on_status.items()):
+                            if target in loop_state_names:
+                                on_status[status_key] = next_first
 
+            # 修正 default：如果指向同循环内另一个 state → 修正为 _r 版本
+            default = base_state.default
+            if default in loop_state_names and default != base_name:
+                default = f"{default}_r{r}"
+
+            # ── 完整 8 字段 StateModel 构造 ──
             expanded[round_name] = StateModel(
                 name=round_name,
                 task=base_state.task,
                 on=on,
-                default=base_state.default,
+                next=next_state,
+                on_status=on_status,
+                default=default,
                 description=f"{base_state.description or base_name} (第 {r} 轮)",
                 terminal=False,
                 gate=base_state.gate,
             )
 
     # 合并：循环体内的原始 state 被展开版本替换
-    # 循环外的 state 保持不变，但其 transition 中指向循环内 state 的需修正为 _r1
+    # 循环外的 state 保留，但其路由字段中指向循环内 state 的需修正为 _r1
+    reroute_map = {name: f"{name}_r1" for name in loop_state_names}
     final_states: dict[str, StateModel] = {}
     for name, state in states.items():
         if name not in loop_state_names:
-            fixed_on = {}
-            for decision, target in (state.on or {}).items():
-                if target in loop_state_names:
-                    fixed_on[decision] = f"{target}_r1"
-                else:
-                    fixed_on[decision] = target
-            final_states[name] = StateModel(
-                name=state.name,
-                task=state.task,
-                on=fixed_on,
-                default=(
-                    f"{state.default}_r1"
-                    if state.default in loop_state_names
-                    else state.default
-                ),
-                description=state.description,
-                terminal=state.terminal,
-                gate=state.gate,
+            final_states[name] = _reroute_state_refs(
+                state, set(loop_state_names), reroute_map
             )
         # 循环体内的原始 state 被展开版本替换，不保留
     final_states.update(expanded)
