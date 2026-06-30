@@ -9,7 +9,6 @@ from agent_workflow.tasks.result import (
     ExecutionMetadata,
     Issue,
     VALID_STATUSES,
-    VALID_DECISIONS,
 )
 
 
@@ -51,11 +50,42 @@ class TestTaskResult:
         issues = result.validate()
         assert any("status" in i for i in issues)
 
-    def test_validate_invalid_decision(self):
+    def test_validate_decision_not_checked_by_runtime(self):
+        """decision 合法性不再由 Runtime 校验：任意 decision（含未知值）都不报错。"""
         result = self._make_minimal_result()
         result.decision = "unknown_decision"
         issues = result.validate()
-        assert any("decision" in i for i in issues)
+        assert not any("decision" in i for i in issues)
+        assert result.is_valid()
+
+    # ── 新增：decision Optional 契约测试 ──
+
+    def test_decision_default_none(self):
+        """TaskResult 默认 decision 为 None。"""
+        result = TaskResult(task_id="t")
+        assert result.decision is None
+
+    def test_get_decision_returns_none(self):
+        """decision 为 None 时 get_decision() 返回 None，不兜底为字符串。"""
+        result = TaskResult(task_id="t")
+        assert result.get_decision() is None
+
+    def test_decision_none_is_valid(self):
+        """decision=None 的 TaskResult 通过校验。"""
+        result = self._make_minimal_result()
+        result.decision = None
+        assert result.is_valid()
+
+    def test_decision_none_roundtrip(self):
+        """decision=None 经 to_dict/from_dict round-trip 保持 None。"""
+        result = self._make_minimal_result()
+        result.decision = None
+        restored = TaskResult.from_dict(result.to_dict())
+        assert restored.decision is None
+        # 从缺省 decision 字段的字典反序列化也应为 None
+        data = result.to_dict()
+        del data["decision"]
+        assert TaskResult.from_dict(data).decision is None
 
     def test_serialization(self):
         result = self._make_minimal_result()
@@ -203,7 +233,46 @@ class TestTaskResultSchema:
         schema = build_task_result_schema(["approve", "revise", "reject"])
         decision_schema = schema["properties"]["decision"]
         assert "enum" in decision_schema
-        assert decision_schema["enum"] == ["approve", "revise", "reject"]
+        # 业务决策值全部在 enum 中
+        assert {"approve", "revise", "reject"}.issubset(set(decision_schema["enum"]))
+        # decision 为 Optional：enum 同时允许 None，type 接受 null
+        assert None in decision_schema["enum"]
+        assert decision_schema["type"] == ["string", "null"]
+
+    def test_decision_schema_accepts_null(self):
+        """decision=None 的 TaskResult 应符合 schema（type 接受 null）。"""
+        from agent_workflow.tasks.result_schema import (
+            TASK_RESULT_SCHEMA,
+            build_task_result_schema,
+        )
+        from agent_workflow.tasks.result import TaskResult, ExecutionMetadata
+
+        decision_type = TASK_RESULT_SCHEMA["properties"]["decision"]["type"]
+        assert decision_type == ["string", "null"]
+
+        tr = TaskResult(
+            task_id="t", state="s", status="success", decision=None,
+            execution=ExecutionMetadata(started_at="2026-01-01", finished_at="2026-01-01"),
+        )
+        # to_dict 真实输出 decision=null，schema 应接受
+        assert tr.to_dict()["decision"] is None
+        try:
+            import jsonschema  # type: ignore
+        except ImportError:
+            return  # 无 jsonschema 时仅校验 type 声明
+        jsonschema.validate(tr.to_dict(), build_task_result_schema(["done", "fail"]))
+        jsonschema.validate(tr.to_dict(), build_task_result_schema(None))
+
+    def test_decision_not_required(self):
+        """decision 已移出 required 列表（不再必填）。"""
+        from agent_workflow.tasks.result_schema import TASK_RESULT_SCHEMA
+        assert "decision" not in TASK_RESULT_SCHEMA["required"]
+
+    def test_build_schema_without_allowed_decisions_no_enum(self):
+        """无 allowed_decisions 时 decision 为自由字符串，不注入 enum。"""
+        from agent_workflow.tasks.result_schema import build_task_result_schema
+        schema = build_task_result_schema(None)
+        assert "enum" not in schema["properties"]["decision"]
 
     # ── 新增：A4 schema 完整性测试 ──
 

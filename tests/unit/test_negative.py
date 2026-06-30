@@ -97,8 +97,12 @@ class TestTaskResultValidation:
         # 其他必需字段都有，所以 passed 应为 True
         assert vr.passed
 
-    def test_invalid_decision_warning(self):
-        """无效 decision → warning。"""
+    def test_invalid_decision_not_warned_by_runtime(self):
+        """decision 合法性不再由 Runtime 全局白名单校验：未知 decision 不产生 warning。
+
+        decision 的合法性今后只由各 task 的 allowed_decisions 决定（Workflow 层），
+        Runtime 不认识业务词，故任意 decision 都不触发 Runtime 级 warning。
+        """
         tr = _make_valid_task_result("test_state")
         tr.decision = "unknown_decision"
         result_dict = tr.to_dict()
@@ -108,7 +112,7 @@ class TestTaskResultValidation:
         vr = validator.validate(result_dict)
 
         decision_warnings = [w for w in vr.warnings if "decision" in w]
-        assert len(decision_warnings) > 0
+        assert len(decision_warnings) == 0
         assert vr.passed
 
     def test_decision_not_in_allowed_decisions_warning(self):

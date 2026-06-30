@@ -15,7 +15,7 @@ import os
 from typing import Any
 
 from .base import BaseValidator, ValidationResult
-from ..tasks.result import VALID_STATUSES, VALID_DECISIONS, TaskResult
+from ..tasks.result import VALID_STATUSES, TaskResult
 
 
 class TaskResultValidator(BaseValidator):
@@ -39,8 +39,8 @@ class TaskResultValidator(BaseValidator):
         if data.get("schema_version", 0) < 1:
             result.add_error("schema_version 必须 >= 1")
 
-        # 2. 必需字段
-        required = ["task_id", "state", "status", "decision", "summary", "execution"]
+        # 2. 必需字段（decision 不再必填——其合法性由 allowed_decisions 决定，可为 None）
+        required = ["task_id", "state", "status", "summary", "execution"]
         for field in required:
             if field not in data or not data[field]:
                 result.add_error(f"缺少必需字段: {field}")
@@ -50,10 +50,9 @@ class TaskResultValidator(BaseValidator):
         if status and status not in VALID_STATUSES:
             result.add_warning(f"无效 status: '{status}'，允许值: {VALID_STATUSES}")
 
-        # 4. decision
+        # 4. decision 合法性不再由 Runtime 全局白名单校验（Runtime 不认识业务词），
+        #    仅在配置了 allowed_decisions 时做 task 级 blocking 校验。
         decision = data.get("decision", "")
-        if decision and decision not in VALID_DECISIONS:
-            result.add_warning(f"无效 decision: '{decision}'，允许值: {VALID_DECISIONS}")
 
         # 5. allowed_decisions 检查（blocking: 无效 decision 直接阻断，避免静默落入 default failed）
         if self.allowed_decisions and decision not in self.allowed_decisions:

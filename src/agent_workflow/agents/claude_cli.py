@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from .base import BaseAgent
+from ._parse import _parse_task_result_text, _extract_task_result_fallback
 from ..context.agent_input import AgentInput
 from ..tasks.result import ExecutionMetadata, TaskResult, _now_iso
 
@@ -49,7 +50,7 @@ class ClaudeCLI(BaseAgent):
                 state=state_name,
                 agent=self.name,
                 status="blocked",
-                decision="blocked",
+                decision=None,
                 summary=f"Claude CLI command '{command}' 未在 PATH 中找到或未配置",
                 execution=ExecutionMetadata(
                     started_at=started_at,
@@ -72,7 +73,7 @@ class ClaudeCLI(BaseAgent):
                 agent_input.task.name,
                 state_name,
                 status="blocked",
-                decision="blocked",
+                decision=None,
                 summary=f"安全拦截: {safety_error}",
                 started_at=started_at,
                 finished_at=finished_at,
@@ -108,7 +109,7 @@ class ClaudeCLI(BaseAgent):
                 state=state_name,
                 agent=self.name,
                 status="cancelled",
-                decision="blocked",
+                decision=None,
                 summary="任务已被取消",
                 execution=ExecutionMetadata(
                     started_at=started_at,
@@ -129,7 +130,7 @@ class ClaudeCLI(BaseAgent):
                 agent_input.task.name,
                 state_name,
                 status="timeout",
-                decision="fail",
+                decision=None,
                 summary=f"执行超时({self.timeout}s)",
                 started_at=started_at,
                 finished_at=finished_at,
@@ -254,16 +255,19 @@ class ClaudeCLI(BaseAgent):
         if parsed is not None:
             return parsed
 
-        # 第三步：最终 fallback
+        # 第三步：最终 fallback —— 无法解析结构化 TaskResult，
+        # 不再伪造 success/done，产出 Runtime 内部瞬时态 invalid_output/None，
+        # 交由后续 Repair 闸口消解。
         exit_code = 0  # 流解析无法获取，调用方会覆盖
+        snippet = result_text[:500] if result_text else (stdout[:500] if stdout else "")
         return TaskResult(
             schema_version=1,
             task_id=state_name,
             state=state_name,
             agent=self.name,
-            status="success",
-            decision="done",
-            summary=result_text[:500] if result_text else (stdout[:500] if stdout else "stream-json 完成"),
+            status="invalid_output",
+            decision=None,
+            summary=f"无法解析结构化 TaskResult 输出。原始输出摘要: {snippet}" if snippet else "无法解析结构化 TaskResult 输出（无可用输出）",
             execution=ExecutionMetadata(
                 started_at=_now_iso(),
                 finished_at=_now_iso(),
@@ -317,73 +321,3 @@ class ClaudeCLI(BaseAgent):
                 f.write("<!-- NO_AGENT_MESSAGE -->\n")
                 f.write("无 assistant message 或 result 事件。\n")
 
-
-def _parse_task_result_text(text: str) -> TaskResult | None:
-    try:
-        data = json.loads(text.strip())
-    except json.JSONDecodeError:
-        data = None
-
-    if isinstance(data, dict):
-        if "result" in data and isinstance(data["result"], str):
-            nested = _parse_task_result_text(data["result"])
-            if nested is not None:
-                return nested
-        if "schema_version" in data:
-            return TaskResult.from_dict(data)
-
-    marker = "```json"
-    search_from = 0
-    while marker in text[search_from:]:
-        try:
-            start = text.index(marker, search_from) + len(marker)
-            end = text.index("```", start)
-            json_text = text[start:end].strip()
-            data = json.loads(json_text)
-            if isinstance(data, dict) and data.get("schema_version", 0) >= 1:
-                return TaskResult.from_dict(data)
-            search_from = end + 3
-        except ValueError:
-            break
-        except json.JSONDecodeError:
-            return _extract_task_result_fallback(text, start, end)
-
-    return None
-
-
-def _extract_task_result_fallback(
-    text: str, json_start: int, json_end: int
-) -> TaskResult | None:
-    """从截断/损坏的 JSON 块中用正则提取 decision/status/summary。
-
-    当模型在 ```json``` 块中使用 [...] 等占位符截断长数组时，
-    json.loads 会失败。此函数回退到逐字段正则提取。
-    """
-    import re
-
-    json_text = text[json_start:json_end].strip()
-
-    def _extract_str(key: str, default: str = "") -> str:
-        m = re.search(r'"' + key + r'"\s*:\s*"((?:[^"\\]|\\.)*)"', json_text)
-        if m:
-            return m.group(1)
-        return default
-
-    decision = _extract_str("decision", "done")
-    status = _extract_str("status", "success")
-    summary = _extract_str("summary", "")
-    task_id = _extract_str("task_id", "")
-    state = _extract_str("state", "")
-
-    # 即使只提取到 decision，也值得返回
-    if decision:
-        return TaskResult(
-            schema_version=1,
-            task_id=task_id,
-            state=state,
-            status=status,
-            decision=decision,
-            summary=summary,
-        )
-
-    return None

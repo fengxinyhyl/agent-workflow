@@ -33,11 +33,14 @@ TaskDecision = Literal[
     "no_op",     # 无操作
 ]
 
-# P0 允许的 status 值
+# 允许的 status 值（Runtime 层语义轴）。
+# 可路由子集仅 {success, failed, blocked}；invalid_output 为 Runtime 内部瞬时态
+# （Parser 无法解析结构化输出时产出，交由后续 Repair 闸口消解，不直接参与路由）；
+# cancelled/timeout 由取消/超时路径单独处理。
 VALID_STATUSES = {"success", "failed", "blocked", "cancelled", "timeout", "invalid_output"}
 
-# P0 允许的 decision 值
-VALID_DECISIONS = {"approve", "revise", "reject", "done", "fail", "blocked", "no_op"}
+# 注意：decision 合法性不再由 Runtime 全局白名单校验，而是由各 task 的
+# allowed_decisions 决定（Workflow 层语义轴）。Runtime 不认识业务词。
 
 
 def _now_iso() -> str:
@@ -97,7 +100,7 @@ class TaskResult:
       state: 执行此 task 时的 state 名称
       agent: 执行 Agent 名称
       status: 执行状态（success/failed/blocked/cancelled/timeout/invalid_output）
-      decision: 语义决策（approve/revise/reject/done/fail/blocked/no_op）
+      decision: 语义决策（Workflow 层；仅分支节点需要，合法值由 task 的 allowed_decisions 决定，可为 None）
       summary: 人类可读的摘要
       artifacts: 产物列表（staging 路径）
       execution: 执行元数据（必填）
@@ -110,7 +113,7 @@ class TaskResult:
     state: str = ""
     agent: str = ""
     status: TaskStatus = "success"
-    decision: TaskDecision = "done"
+    decision: str | None = None
     summary: str = ""
     artifacts: list[ArtifactRef] | list[dict[str, Any]] = field(default_factory=list)
     execution: ExecutionMetadata | dict[str, Any] = field(default_factory=ExecutionMetadata)
@@ -135,8 +138,8 @@ class TaskResult:
         if self.status not in VALID_STATUSES:
             issues.append(f"无效 status: '{self.status}'，允许值: {VALID_STATUSES}")
 
-        if self.decision not in VALID_DECISIONS:
-            issues.append(f"无效 decision: '{self.decision}'，允许值: {VALID_DECISIONS}")
+        # decision 合法性不再由 Runtime 校验（交由 task 的 allowed_decisions 决定），
+        # 故 decision 为空或任意值都不在此报错。
 
         # 校验 execution metadata
         exec_data = self.execution
@@ -152,8 +155,10 @@ class TaskResult:
         """是否通过校验。"""
         return len(self.validate()) == 0
 
-    def get_decision(self) -> str:
-        """获取决策字符串（规范化）。"""
+    def get_decision(self) -> str | None:
+        """获取决策字符串（规范化）。decision 为 None 时返回 None，不再兜底为字符串。"""
+        if self.decision is None:
+            return None
         return str(self.decision).lower().strip()
 
     def get_artifacts(self) -> list[ArtifactRef]:
@@ -248,7 +253,7 @@ class TaskResult:
             state=data.get("state", ""),
             agent=data.get("agent", ""),
             status=data.get("status", "success"),
-            decision=data.get("decision", "done"),
+            decision=data.get("decision", None),
             summary=data.get("summary", ""),
             artifacts=artifacts,
             execution=execution,

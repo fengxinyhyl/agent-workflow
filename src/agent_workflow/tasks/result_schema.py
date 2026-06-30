@@ -19,7 +19,6 @@ TASK_RESULT_SCHEMA: dict[str, Any] = {
         "task_id",
         "state",
         "status",
-        "decision",
         "summary",
         "execution",
     ],
@@ -48,8 +47,9 @@ TASK_RESULT_SCHEMA: dict[str, Any] = {
             "description": "执行状态",
         },
         "decision": {
-            "type": "string",
-            "description": "语义决策，Runner 据此选择 state transition",
+            # decision 为 Optional：可省略，也允许显式为 null（Parser 兜底 / 线性任务）。
+            "type": ["string", "null"],
+            "description": "语义决策（仅分支节点需要；本任务若无 allowed_decisions 则可省略或为 null）",
         },
         "summary": {
             "type": "string",
@@ -171,9 +171,12 @@ def build_task_result_schema(allowed_decisions: list[str] | None = None) -> dict
 
     if allowed_decisions:
         decision_prop = dict(props["decision"])
-        decision_prop["enum"] = allowed_decisions
+        # 注入 enum 时同时保留 None，避免与 decision Optional 契约冲突
+        # （decision 非必填，可省略或显式 null）。
+        decision_prop["enum"] = list(allowed_decisions) + [None]
+        decision_prop["type"] = ["string", "null"]
         decision_prop["description"] = (
-            f"语义决策（允许值: {', '.join(allowed_decisions)}）"
+            f"语义决策（允许值: {', '.join(allowed_decisions)}；可省略或为 null）"
         )
         props["decision"] = decision_prop
 

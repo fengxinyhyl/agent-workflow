@@ -92,6 +92,20 @@ class AgentInput:
 
         # 5. TaskResult Schema
         if self.expected_task_result_schema:
+            # 先确定本任务是否有分支决策：优先取 skill_policy.allowed_decisions，
+            # 否则回退到 schema 中 decision 字段注入的 enum（去掉 None）。
+            allowed = self.skill_policy.get("allowed_decisions", [])
+            decision_enum: list[str] = []
+            if not allowed:
+                decision_prop = (
+                    self.expected_task_result_schema.get("properties", {})
+                    .get("decision", {})
+                )
+                decision_enum = [
+                    v for v in (decision_prop.get("enum") or []) if v is not None
+                ]
+            effective_decisions = list(allowed) or decision_enum
+
             parts.append("## 输出格式要求\n")
             parts.append("**重要：你必须在最后一条消息的末尾输出一个 ```json 代码块，内容为 TaskResult JSON 对象。**\n")
             parts.append("TaskResult 的必需字段（其他字段见下面 schema）：\n")
@@ -99,7 +113,10 @@ class AgentInput:
             parts.append("- `task_id`: 当前 task 名称\n")
             parts.append("- `state`: 当前 state 名称\n")
             parts.append("- `status`: 执行状态（success/failed/blocked/timeout）\n")
-            parts.append("- `decision`: 语义决策（见下方允许的决策列表）\n")
+            if effective_decisions:
+                parts.append("- `decision`: 语义决策（见下方允许的决策列表）\n")
+            else:
+                parts.append("- `decision`: 语义决策（可选；本任务无分支决策，可省略或置为 null）\n")
             parts.append("- `summary`: 人类可读的执行摘要\n")
             parts.append("- `artifacts`: 产出物列表（每项包含 name/staging_path/type），可以为空数组\n")
             parts.append("- `execution`: 执行元数据（started_at/finished_at/exit_code 等，引擎会覆盖）\n")
@@ -109,20 +126,10 @@ class AgentInput:
             parts.append('  "schema_version": 1,\n')
             parts.append(f'  "task_id": "{self.task.name if self.task else "task"}",\n')
             parts.append(f'  "state": "{self.state_name or "state"}",\n')
-            # 示例 decision 使用 allowed_decisions 的第一个值，而非硬编码 "done"
-            example_decision = "done"
-            allowed = self.skill_policy.get("allowed_decisions", [])
-            if allowed:
-                example_decision = allowed[0]
-            elif self.expected_task_result_schema:
-                decision_prop = (
-                    self.expected_task_result_schema.get("properties", {})
-                    .get("decision", {})
-                )
-                if "enum" in decision_prop and decision_prop["enum"]:
-                    example_decision = decision_prop["enum"][0]
             parts.append('  "status": "success",\n')
-            parts.append(f'  "decision": "{example_decision}",\n')
+            # 仅当任务确有分支决策时才在示例中给出 decision，避免诱导线性任务输出 done
+            if effective_decisions:
+                parts.append(f'  "decision": "{effective_decisions[0]}",\n')
             parts.append('  "summary": "任务完成的简要描述",\n')
             parts.append('  "artifacts": [],\n')
             parts.append('  "execution": {"started_at": "", "finished_at": "", "exit_code": 0}\n')

@@ -175,3 +175,43 @@ class TestAgentInput:
         prompt = agent_input.build_prompt()
         assert "测试技能指引" in prompt
         assert "done" in prompt
+
+    def test_build_prompt_no_allowed_decisions_no_done_example(self):
+        """无 allowed_decisions 时示例不应诱导输出 decision: "done"，且说明 decision 可省略。"""
+        from agent_workflow.tasks.result_schema import build_task_result_schema
+
+        ctx = RunContext.create(
+            workflow_id="test", goal="test", project_root="/tmp",
+            run_id="run_001", run_root="/tmp/runs/run_001",
+        )
+        task = TaskConfig(name="plan", instruction="编写计划", agent="planner")
+        agent_input = AgentInput(
+            task=task,
+            context=ctx,
+            expected_task_result_schema=build_task_result_schema(None),
+        )
+        prompt = agent_input.build_prompt()
+        # 示例中不得出现硬编码的 decision: "done"
+        assert '"decision": "done"' not in prompt
+        # 必需字段说明应标注 decision 可省略
+        assert "可选" in prompt
+
+    def test_build_prompt_allowed_decisions_example_uses_first(self):
+        """有 allowed_decisions 时示例 decision 取第一个允许值。"""
+        from agent_workflow.tasks.result_schema import build_task_result_schema
+
+        ctx = RunContext.create(
+            workflow_id="test", goal="test", project_root="/tmp",
+            run_id="run_001", run_root="/tmp/runs/run_001",
+        )
+        task = TaskConfig(name="review", instruction="审查", agent="reviewer")
+        agent_input = AgentInput(
+            task=task,
+            context=ctx,
+            skill_policy={"allowed_decisions": ["approve", "revise", "reject"]},
+            expected_task_result_schema=build_task_result_schema(
+                ["approve", "revise", "reject"]
+            ),
+        )
+        prompt = agent_input.build_prompt()
+        assert '"decision": "approve"' in prompt
