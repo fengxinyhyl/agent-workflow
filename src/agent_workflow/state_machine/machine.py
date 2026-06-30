@@ -66,6 +66,52 @@ class StateMachine:
                         f"state '{name}' on '{decision}' → '{target}' 目标不存在"
                     )
 
+            # next 目标必须存在
+            if state.next and state.next not in self.states:
+                issues.append(
+                    f"state '{name}' next → '{state.next}' 目标不存在"
+                )
+
+            # on_status 中的目标必须存在
+            for status_key, target in state.on_status.items():
+                if target not in self.states:
+                    issues.append(
+                        f"state '{name}' on_status '{status_key}' → '{target}' 目标不存在"
+                    )
+
+        # ── Runtime v2 护栏 1：缺失成功出口 ──
+        for name, state in self.states.items():
+            if name in self.terminal_states:
+                continue
+            has_on = bool(state.on)
+            has_next = bool(state.next)
+            if has_on and has_next:
+                issues.append(
+                    f"state '{name}' 同时定义了 on 和 next，非终止节点必须恰好定义一个成功出口"
+                )
+            elif not has_on and not has_next:
+                issues.append(
+                    f"state '{name}' 未定义成功出口（on 或 next），非终止节点必须恰好定义一个成功出口"
+                )
+
+        # ── Runtime v2 护栏 2：decision 必填一致性 ──
+        for name, state in self.states.items():
+            if name in self.terminal_states:
+                continue
+            task_model = self.workflow.tasks.get(state.task) if state.task else None
+            if state.on:
+                # 有 on 分支 → allowed_decisions 应非空
+                if task_model and not task_model.allowed_decisions:
+                    issues.append(
+                        f"state '{name}' 定义了 on 分支但 task '{state.task}' "
+                        f"未声明 allowed_decisions，on 键可能永远无法命中"
+                    )
+            elif state.next:
+                # 有 next（无 on）→ allowed_decisions 不应声明（语义冲突）
+                # 此处仅警告，存量 YAML 大量存在此模式
+                if task_model and task_model.allowed_decisions:
+                    pass  # 警告但不报错，存量兼容
+
         # 5. 检查可达性（从 initial_state 出发的 DFS）
         reachable = self._find_reachable()
         for name in self.states:
@@ -73,12 +119,12 @@ class StateMachine:
                 # 只警告，不阻止
                 pass
 
-        # 6. 终止状态不应有 on 转换
+        # 6. 终止状态不应有 on/next 转换
         for name in self.terminal_states:
             if name in self.states:
                 state = self.states[name]
-                if state.on:
-                    issues.append(f"终止状态 '{name}' 不应定义 on 转换")
+                if state.on or state.next:
+                    issues.append(f"终止状态 '{name}' 不应定义 on 或 next 转换")
 
         return issues
 
@@ -97,43 +143,74 @@ class StateMachine:
                     stack.append(state.default)
                 for target in state.on.values():
                     stack.append(target)
+                if state.next:
+                    stack.append(state.next)
+                for target in state.on_status.values():
+                    stack.append(target)
         return reachable
 
-    def resolve_transition(self, state_name: str, decision: str) -> TransitionResult:
-        """根据当前状态和 decision 解析下一状态。
+    def resolve_transition(self, state_name: str, status: str, decision: str | None = None) -> TransitionResult:
+        """根据当前状态、status 和 decision 解析下一状态（Runtime v2 两段式路由）。
 
-        规则（v4）：
-        - 如果 decision 在 state.on 中 → 返回对应状态
-        - 否则 → 返回 state.default
-        - 未知 decision 必须写 observability event 和 execution log
+        规则：
+        - 第一段：status != success → on_status 或 default
+        - 第二段：status = success → on（分支）或 next（线性）
+        - 未知 state → "failed"（配置缺失，validate 期拦截）
         """
         state = self.states.get(state_name)
         if state is None:
             return TransitionResult(
-                current_state=state_name,
-                decision=decision,
-                next_state="failed",
-                matched=False,
+                current_state=state_name, status=status, decision=decision or "",
+                next_state="failed", matched=False, route_by="status",
                 reason=f"状态 '{state_name}' 未定义",
             )
 
-        if decision in state.on:
+        # ── 第一段：status != success → on_status 或 default ──
+        if status != "success":
+            if status in state.on_status:
+                return TransitionResult(
+                    current_state=state_name, status=status, decision=decision or "",
+                    next_state=state.on_status[status], matched=True, route_by="status",
+                    reason=f"status={status}, on_status 匹配 → '{state.on_status[status]}'",
+                )
+            route_target = state.default or "failed"
             return TransitionResult(
-                current_state=state_name,
-                decision=decision,
-                next_state=state.on[decision],
-                matched=True,
-                reason=f"匹配到 on['{decision}']",
+                current_state=state_name, status=status, decision=decision or "",
+                next_state=route_target, matched=False, route_by="status",
+                reason=f"status={status}, 无 on_status 映射, 走 default → '{route_target}'",
             )
 
-        # 走 default
-        next_state = state.default or "failed"
+        # ── 第二段：status = success ──
+        # 分支 3: on 中有匹配的 decision
+        if state.on and decision in state.on:
+            return TransitionResult(
+                current_state=state_name, status=status, decision=decision or "",
+                next_state=state.on[decision], matched=True, route_by="decision",
+                reason=f"status=success, decision='{decision}' 匹配 on",
+            )
+
+        # 分支 4: on 存在但 decision 未匹配 → default（仍在 decision 分支）
+        if state.on:
+            return TransitionResult(
+                current_state=state_name, status=status, decision=decision or "",
+                next_state=state.default or "failed", matched=False, route_by="decision",
+                reason=f"decision='{decision}' 未匹配 on，走 default → '{state.default}'",
+            )
+
+        # 分支 5: 线性节点 → next
+        if state.next:
+            return TransitionResult(
+                current_state=state_name, status=status, decision=decision or "",
+                next_state=state.next, matched=True, route_by="next",
+                reason=f"status=success, 线性节点 next → '{state.next}'",
+            )
+
+        # 分支 6: 无 on 也无 next → default（配置疏漏，validate 期拦截）
+        route_target = state.default or "failed"
         return TransitionResult(
-            current_state=state_name,
-            decision=decision,
-            next_state=next_state,
-            matched=False,
-            reason=f"未匹配 '{decision}'，走 default → '{next_state}'",
+            current_state=state_name, status=status, decision=decision or "",
+            next_state=route_target, matched=False, route_by="status",
+            reason=f"status=success, 无 on/next, 走 default → '{route_target}'",
         )
 
     def is_terminal(self, state_name: str) -> bool:
@@ -153,10 +230,10 @@ class StateMachine:
 
     def get_terminal_states(self) -> set[str]:
         """获取所有终止状态。"""
-        # 自动推断：没有 on 转换也没有 task 的 state 也是 terminal
+        # 自动推断：没有 on 且没有 next 且没有 task 的 state 也是 terminal
         terminals = set(self.terminal_states)
         for name, state in self.states.items():
-            if not state.on and not state.task:
+            if not state.on and not state.next and not state.task:
                 terminals.add(name)
         return terminals
 
@@ -175,6 +252,10 @@ class StateMachine:
                 dfs(target)
             if state.default:
                 dfs(state.default)
+            if state.next:
+                dfs(state.next)
+            for target in state.on_status.values():
+                dfs(target)
 
         if self.initial_state:
             dfs(self.initial_state)

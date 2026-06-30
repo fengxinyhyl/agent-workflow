@@ -239,7 +239,7 @@ class TestUnknownDecisionDefault:
         sm = StateMachine(wf)
 
         # 未知 decision
-        result = sm.resolve_transition("claude_review_plan", "gibberish")
+        result = sm.resolve_transition("claude_review_plan", "success", "gibberish")
         assert result.next_state == "failed"
         assert not result.matched
         assert "default" in result.reason

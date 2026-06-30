@@ -60,8 +60,10 @@ def get_explanation(run_id: str, run_root: str | None = None) -> str:
     state_config = states_data.get(current_state, {}) if states_data else {}
     task_name = state_config.get("task", "")
     on_map = state_config.get("on", {})
+    next_state = state_config.get("next", "")
+    on_status_map = state_config.get("on_status", {})
     default = state_config.get("default", "failed")
-    is_terminal = state_config.get("terminal", False) or (not on_map and not task_name)
+    is_terminal = state_config.get("terminal", False) or (not on_map and not next_state and not task_name)
 
     # 获取 task 配置
     task_config = {}
@@ -124,17 +126,28 @@ def get_explanation(run_id: str, run_root: str | None = None) -> str:
         lines.append(f"Allowed Decisions:   {', '.join(allowed_decisions) if allowed_decisions else '(any)'}")
     lines.append("")
 
-    # Transitions
+    # Transitions（Runtime v2：展示 next / on_status / on / default）
     lines.append("Transitions:")
+    has_any = False
+    if next_state:
+        lines.append(f"  {'next':20s} -> {next_state}")
+        has_any = True
+    if on_status_map:
+        for key, target in sorted(on_status_map.items()):
+            lines.append(f"  (on_status) {key:10s} -> {target}")
+            has_any = True
     if on_map:
-        for decision, next_state in sorted(on_map.items()):
-            lines.append(f"  {decision:12s} -> {next_state}")
+        for decision, target in sorted(on_map.items()):
+            lines.append(f"  on: {decision:15s} -> {target}")
+            has_any = True
     elif is_terminal:
-        lines.append("  (none — 工作流已结束)")
+        if not has_any:
+            lines.append("  (none — 工作流已结束)")
     else:
-        lines.append("  (none — state 未定义 on 转换)")
+        if not has_any:
+            lines.append("  (none — state 未定义 on/next 转换)")
     if not is_terminal:
-        lines.append(f"  {'default':12s} -> {default}")
+        lines.append(f"  {'default':20s} -> {default}")
     lines.append("")
 
     # Guards

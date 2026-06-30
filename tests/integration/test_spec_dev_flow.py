@@ -56,20 +56,20 @@ class TestSpecDevFlow:
     def test_review_decisions_drive_transitions(self):
         sm = StateMachine(_build_workflow())
 
-        assert sm.resolve_transition("planning", "done").next_state == "plan_review"
-        assert sm.resolve_transition("plan_review", "approve").next_state == "execution"
-        assert sm.resolve_transition("plan_review", "revise").next_state == "plan_refinement"
-        assert sm.resolve_transition("plan_review", "reject").next_state == "failed"
-        assert sm.resolve_transition("plan_refinement", "done").next_state == "plan_review"
+        assert sm.resolve_transition("planning", "success", "done").next_state == "plan_review"
+        assert sm.resolve_transition("plan_review", "success", "approve").next_state == "execution"
+        assert sm.resolve_transition("plan_review", "success", "revise").next_state == "plan_refinement"
+        assert sm.resolve_transition("plan_review", "success", "reject").next_state == "failed"
+        assert sm.resolve_transition("plan_refinement", "success", "done").next_state == "plan_review"
 
-        assert sm.resolve_transition("execution", "done").next_state == "output_review"
-        assert sm.resolve_transition("output_review", "approve").next_state == "validation"
-        assert sm.resolve_transition("output_review", "revise").next_state == "output_refinement"
-        assert sm.resolve_transition("output_review", "reject").next_state == "failed"
-        assert sm.resolve_transition("output_refinement", "done").next_state == "output_review"
+        assert sm.resolve_transition("execution", "success", "done").next_state == "output_review"
+        assert sm.resolve_transition("output_review", "success", "approve").next_state == "validation"
+        assert sm.resolve_transition("output_review", "success", "revise").next_state == "output_refinement"
+        assert sm.resolve_transition("output_review", "success", "reject").next_state == "failed"
+        assert sm.resolve_transition("output_refinement", "success", "done").next_state == "output_review"
 
-        assert sm.resolve_transition("validation", "approve").next_state == "retrospective"
-        assert sm.resolve_transition("validation", "revise").next_state == "output_refinement"
+        assert sm.resolve_transition("validation", "success", "approve").next_state == "retrospective"
+        assert sm.resolve_transition("validation", "success", "revise").next_state == "output_refinement"
 
     def test_review_tasks_allow_approve_revise_reject(self):
         wf = _build_workflow()

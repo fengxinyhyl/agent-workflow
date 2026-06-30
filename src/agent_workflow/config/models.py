@@ -63,7 +63,9 @@ class StateModel:
 
     name: str = ""
     task: str = ""  # task name
-    on: dict[str, str] = field(default_factory=dict)  # decision → next_state
+    on: dict[str, str] = field(default_factory=dict)  # decision → next_state（分支节点）
+    next: str = ""  # 成功后的单出口（线性节点）
+    on_status: dict[str, str] = field(default_factory=dict)  # status → successor（仅 failed/blocked）
     default: str = "failed"  # 未知 decision 的默认跳转
     description: str = ""
     terminal: bool = False  # 是否为终止状态
@@ -88,6 +90,8 @@ class StateModel:
             "name": self.name,
             "task": self.task,
             "on": self.on,
+            "next": self.next,
+            "on_status": self.on_status,
             "default": self.default,
             "description": self.description,
             "terminal": self.terminal,
@@ -222,6 +226,25 @@ class WorkflowConfig:
                         f"目标 state 未定义"
                     )
 
+        # 3b. State.next 目标存在
+        for name, state in self.states.items():
+            if state.terminal:
+                continue
+            if state.next and state.next not in self.states:
+                issues.append(
+                    f"state '{name}' next → '{state.next}' 目标 state 未定义"
+                )
+
+        # 3c. State.on_status 目标存在
+        for name, state in self.states.items():
+            if state.terminal:
+                continue
+            for status_key, target in state.on_status.items():
+                if target not in self.states:
+                    issues.append(
+                        f"state '{name}' on_status '{status_key}' → '{target}' 目标 state 未定义"
+                    )
+
         # 4. default 目标 state 存在（非 terminal）
         for name, state in self.states.items():
             if state.terminal:
@@ -276,6 +299,8 @@ class WorkflowConfig:
                 name=s.get("name", n),
                 task=s.get("task", ""),
                 on=s.get("on", {}),
+                next=s.get("next", ""),
+                on_status=s.get("on_status", {}),
                 default=s.get("default", "failed"),
                 description=s.get("description", ""),
                 terminal=s.get("terminal", False),

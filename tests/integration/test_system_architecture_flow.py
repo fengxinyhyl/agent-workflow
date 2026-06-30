@@ -64,19 +64,19 @@ class TestSystemArchitectureFlow:
         sm = StateMachine(_build_workflow())
 
         assert (
-            sm.resolve_transition("extract_drivers", "done").next_state
+            sm.resolve_transition("extract_drivers", "success", "done").next_state
             == "structure_constraints_objectives"
         )
         assert (
-            sm.resolve_transition("structure_constraints_objectives", "done").next_state
+            sm.resolve_transition("structure_constraints_objectives", "success", "done").next_state
             == "draft_architecture"
         )
-        assert sm.resolve_transition("draft_architecture", "done").next_state == "evaluation_gate"
-        assert sm.resolve_transition("evaluation_gate", "approve").next_state == "architecture_freeze"
-        assert sm.resolve_transition("evaluation_gate", "revise").next_state == "conflict_revision"
-        assert sm.resolve_transition("evaluation_gate", "reject").next_state == "failed"
-        assert sm.resolve_transition("conflict_revision", "done").next_state == "evaluation_gate"
-        assert sm.resolve_transition("architecture_freeze", "done").next_state == "done"
+        assert sm.resolve_transition("draft_architecture", "success", "done").next_state == "evaluation_gate"
+        assert sm.resolve_transition("evaluation_gate", "success", "approve").next_state == "architecture_freeze"
+        assert sm.resolve_transition("evaluation_gate", "success", "revise").next_state == "conflict_revision"
+        assert sm.resolve_transition("evaluation_gate", "success", "reject").next_state == "failed"
+        assert sm.resolve_transition("conflict_revision", "success", "done").next_state == "evaluation_gate"
+        assert sm.resolve_transition("architecture_freeze", "success", "done").next_state == "done"
 
     def test_review_task_allows_review_decisions(self):
         wf = _build_workflow()

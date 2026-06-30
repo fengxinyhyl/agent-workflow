@@ -17,9 +17,13 @@ class TransitionResult:
     current_state: str = ""
     decision: str = ""
     next_state: str = ""
-    matched: bool = True  # decision 是否匹配到 on
+    matched: bool = True  # decision/status 是否匹配到 on/on_status
     reason: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    # Runtime v2: 两段式路由新增字段
+    status: str = ""       # 触发本次路由的 status（success/failed/blocked）
+    route_by: str = ""     # "status" | "decision" | "next" — 路由驱动因素
 
     def is_terminal(self, terminal_states: set[str]) -> bool:
         """判断下一状态是否为终止状态。"""
@@ -33,6 +37,8 @@ class TransitionResult:
             "next_state": self.next_state,
             "matched": self.matched,
             "reason": self.reason,
+            "status": self.status,
+            "route_by": self.route_by,
         }
 
 

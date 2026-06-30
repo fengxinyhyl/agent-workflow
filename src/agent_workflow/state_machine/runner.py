@@ -482,8 +482,8 @@ class Runner:
                     })
                     break
 
-                # 6. Transition
-                transition = self.sm.resolve_transition(current_state, decision)
+                # 6. Transition（Runtime v2 两段式路由）
+                transition = self.sm.resolve_transition(current_state, status, decision)
                 self._get_event_bus().emit("TransitionSelected", transition.to_event_dict())
 
                 # 7. 更新状态
@@ -1266,9 +1266,9 @@ class Runner:
         if "_run_status" in self.context.workflow_variables:
             del self.context.workflow_variables["_run_status"]
 
-        # 根据批准结果构造 decision 并 resolve transition
+        # 根据批准结果构造 decision 并 resolve transition（Runtime v2 两段式）
         decision = "approve" if approved else "reject"
-        transition = self.sm.resolve_transition(gate_state, decision)
+        transition = self.sm.resolve_transition(gate_state, status="success", decision=decision)
         next_state = transition.next_state
 
         # 发射 transition 事件
@@ -1332,7 +1332,7 @@ class Runner:
             state=state_name,
             agent="runner",
             status="failed",
-            decision="fail",
+            decision=None,
             summary=error,
             execution=ExecutionMetadata(
                 started_at=_now_iso(),

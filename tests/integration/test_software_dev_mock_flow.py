@@ -144,23 +144,23 @@ class TestSoftwareDevMockFlow:
         sm = StateMachine(wf)
 
         # plan done → review_plan
-        result = sm.resolve_transition("plan", "done")
+        result = sm.resolve_transition("plan", "success", "done")
         assert result.next_state == "review_plan"
 
         # review_plan approve → execute
-        result = sm.resolve_transition("review_plan", "approve")
+        result = sm.resolve_transition("review_plan", "success", "approve")
         assert result.next_state == "execute"
 
         # review_plan revise → revise_plan
-        result = sm.resolve_transition("review_plan", "revise")
+        result = sm.resolve_transition("review_plan", "success", "revise")
         assert result.next_state == "revise_plan"
 
         # review_plan reject → failed
-        result = sm.resolve_transition("review_plan", "reject")
+        result = sm.resolve_transition("review_plan", "success", "reject")
         assert result.next_state == "failed"
 
         # 未知 decision 走 default
-        result = sm.resolve_transition("review_plan", "unknown")
+        result = sm.resolve_transition("review_plan", "success", "unknown")
         assert result.next_state == "failed"
 
     @pytest.mark.skipif(not _has_examples(), reason="示例目录不存在")

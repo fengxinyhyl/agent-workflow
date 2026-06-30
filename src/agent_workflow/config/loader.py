@@ -115,12 +115,41 @@ def load_task(data: dict[str, Any]) -> TaskModel:
     )
 
 
+def _normalize_state(data: dict[str, Any]) -> dict[str, Any]:
+    """将旧格式 on={done, fail, blocked, approve, ...} 归一为新格式。
+
+    - done → next（成功单出口）
+    - fail/blocked → 若目标与 default 不同则写入 on_status，否则丢弃
+    - approve/revise/reject 等业务词保留在 on
+    """
+    on = dict(data.get("on", {}))
+    default_target = data.get("default", "failed")
+
+    # 生命周期词 done → next
+    if "done" in on:
+        data.setdefault("next", on.pop("done"))
+
+    # fail/blocked → on_status（仅当目标不同于 default 时写入，避免冗余）
+    for key in ("fail", "blocked"):
+        if key in on:
+            target = on.pop(key)
+            if target != default_target:
+                data.setdefault("on_status", {})
+                data["on_status"][key] = target
+
+    data["on"] = on  # 剩余的是业务词（approve, revise, reject 等）
+    return data
+
+
 def load_state(data: dict[str, Any]) -> StateModel:
-    """从字典加载 StateModel。"""
+    """从字典加载 StateModel（含旧格式自动归一）。"""
+    data = _normalize_state(data)
     return StateModel(
         name=data.get("name", ""),
         task=data.get("task", ""),
         on=data.get("on", {}),
+        next=data.get("next", ""),
+        on_status=data.get("on_status", {}),
         default=data.get("default", "failed"),
         description=data.get("description", ""),
         terminal=_as_bool(data.get("terminal", False)),
@@ -383,9 +412,10 @@ def load_workflow(path: str) -> WorkflowConfig:
     terminal_states = resolved.get("terminal_states", [])
     if not terminal_states:
         # 自动识别 terminal states
+        # 新模型：无 on 且无 next 的 state 才可能是 terminal
         terminal_states = [
             name for name, s in states.items()
-            if s.terminal or not s.on
+            if s.terminal or (not s.on and not s.next)
         ]
 
     return WorkflowConfig(

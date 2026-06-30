@@ -63,16 +63,16 @@ class TestStandardDevFlow:
     def test_transition_chain(self):
         sm = StateMachine(_build_workflow())
 
-        assert sm.resolve_transition("plan", "done").next_state == "review"
-        assert sm.resolve_transition("review", "done").next_state == "adoption"
-        assert sm.resolve_transition("adoption", "approve").next_state == "implement"
-        assert sm.resolve_transition("adoption", "revise").next_state == "plan"
-        assert sm.resolve_transition("implement", "done").next_state == "code_audit"
-        assert sm.resolve_transition("code_audit", "approve").next_state == "unit_test"
-        assert sm.resolve_transition("code_audit", "revise").next_state == "implement"
-        assert sm.resolve_transition("unit_test", "approve").next_state == "summary"
-        assert sm.resolve_transition("unit_test", "revise").next_state == "implement"
-        assert sm.resolve_transition("summary", "done").next_state == "done"
+        assert sm.resolve_transition("plan", "success", "done").next_state == "review"
+        assert sm.resolve_transition("review", "success", "done").next_state == "adoption"
+        assert sm.resolve_transition("adoption", "success", "approve").next_state == "implement"
+        assert sm.resolve_transition("adoption", "success", "revise").next_state == "plan"
+        assert sm.resolve_transition("implement", "success", "done").next_state == "code_audit"
+        assert sm.resolve_transition("code_audit", "success", "approve").next_state == "unit_test"
+        assert sm.resolve_transition("code_audit", "success", "revise").next_state == "implement"
+        assert sm.resolve_transition("unit_test", "success", "approve").next_state == "summary"
+        assert sm.resolve_transition("unit_test", "success", "revise").next_state == "implement"
+        assert sm.resolve_transition("summary", "success", "done").next_state == "done"
 
     def test_mock_happy_path(self):
         wf = _build_workflow()
