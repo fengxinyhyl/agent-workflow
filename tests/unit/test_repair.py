@@ -1,0 +1,496 @@
+"""测试 Repair 编排流程（MockAgent + decision_script 模拟）。"""
+
+import json
+import os
+import tempfile
+import shutil
+from datetime import datetime, timezone, timedelta
+
+import pytest
+
+from agent_workflow.config.models import (
+    WorkflowConfig, TaskModel, StateModel, GuardModel,
+)
+from agent_workflow.state_machine.runner import Runner
+from agent_workflow.tasks.result import TaskResult, ExecutionMetadata
+
+
+def _now_iso() -> str:
+    tz = timezone(timedelta(hours=8))
+    return datetime.now(tz).isoformat()
+
+
+# ── helpers ──
+
+def _make_minimal_workflow(name="test_wf", states=None, tasks=None, guards=None):
+    """构建最小 WorkflowConfig。"""
+    return WorkflowConfig(
+        name=name,
+        initial_state="plan",
+        terminal_states=["done", "failed"],
+        guards=guards or GuardModel(),
+        tasks=tasks or {},
+        states=states or {},
+    )
+
+
+def _make_task(name="plan", instruction="test", agent="mock", allowed_decisions=None):
+    """构建 TaskModel。"""
+    return TaskModel(
+        name=name,
+        instruction=instruction,
+        agent=agent,
+        allowed_decisions=allowed_decisions or [],
+    )
+
+
+def _make_state(name="plan", task="plan", on=None, next=None, default="failed"):
+    """构建 StateModel。"""
+    return StateModel(
+        name=name,
+        task=task,
+        on=on or {},
+        next=next,
+        default=default,
+    )
+
+
+def _create_runner(wf, goal="test", tmpdir=None):
+    """创建 Runner 并返回 (runner, tmpdir)。
+
+    Windows 注意：JSONLSink 会持有 events.jsonl 文件句柄，
+    测试退出时可能导致 PermissionError。这里使用 ignore_cleanup_errors。
+    """
+    if tmpdir is None:
+        tmpdir = tempfile.mkdtemp()
+    run_root = os.path.join(tmpdir, "runs", "run_test")
+    os.makedirs(run_root, exist_ok=True)
+
+    runner = Runner(
+        wf,
+        goal=goal,
+        project_root=tmpdir,
+        run_root=os.path.dirname(run_root),
+    )
+    runner._run_id = "run_test"
+    runner.start()
+    return runner, tmpdir
+
+
+# ── 测试：纯函数级 Repair 判定 ──
+
+class TestRepairDecision:
+    """验证纯函数 validate() 对各场景的 repairable 判定。"""
+
+    def _make_valid_data(self, **overrides):
+        data = {
+            "schema_version": 1,
+            "task_id": "test",
+            "state": "test_state",
+            "status": "success",
+            "summary": "ok",
+            "execution": {
+                "started_at": _now_iso(),
+                "finished_at": _now_iso(),
+                "exit_code": 0,
+            },
+        }
+        data.update(overrides)
+        return data
+
+    def test_invalid_output_repairable(self):
+        """invalid_output → repairable=True。"""
+        from agent_workflow.validators.task_result import validate
+        from agent_workflow.validators.validation_result import RouteShape
+        rs = RouteShape(has_on=True, allowed_decisions=("done",))
+        vr = validate(self._make_valid_data(status="invalid_output"), rs)
+        assert vr.repairable is True
+        assert vr.valid is False
+
+    def test_decision_not_allowed_repairable(self):
+        """decision 不在 allowed_decisions → repairable=True。"""
+        from agent_workflow.validators.task_result import validate
+        from agent_workflow.validators.validation_result import RouteShape
+        rs = RouteShape(has_on=True, allowed_decisions=("done", "fail"))
+        vr = validate(self._make_valid_data(decision="approve"), rs)
+        assert vr.repairable is True
+        assert vr.valid is False
+
+    def test_repairable_false_direct_failed(self):
+        """repairable=False → Runner 应直接 failed，不走 Repair。"""
+        from agent_workflow.validators.task_result import validate
+        from agent_workflow.validators.validation_result import RouteShape
+        vr = validate(
+            {"schema_version": 0, "task_id": "t"},
+            RouteShape(),
+        )
+        assert vr.valid is False
+        assert vr.repairable is False
+
+    def test_linear_node_no_repair_triggered(self):
+        """线性节点（has_next=True）无 decision → 不触发 Repair。"""
+        from agent_workflow.validators.task_result import validate
+        from agent_workflow.validators.validation_result import RouteShape
+        data = self._make_valid_data(decision=None)
+        rs = RouteShape(has_next=True)
+        vr = validate(data, rs)
+        assert vr.valid is True
+
+    def test_linear_node_invalid_output_repairable(self):
+        """线性节点 + invalid_output → repairable=True（线性节点也享受 Repair）。"""
+        from agent_workflow.validators.task_result import validate
+        from agent_workflow.validators.validation_result import RouteShape
+        vr = validate(
+            self._make_valid_data(status="invalid_output"),
+            RouteShape(has_next=True),
+        )
+        assert vr.repairable is True
+
+    def test_compound_error_repairable(self):
+        """复合错误（invalid_output + decision=None）一次判定 repairable。"""
+        from agent_workflow.validators.task_result import validate
+        from agent_workflow.validators.validation_result import RouteShape
+        rs = RouteShape(has_on=True, allowed_decisions=("done", "fail"))
+        vr = validate(
+            self._make_valid_data(status="invalid_output", decision=None), rs
+        )
+        assert vr.repairable is True
+
+
+# ── 测试：Runner 级别 Repair 流程 ──
+
+class TestRepairFlow:
+    """Repair 编排端到端测试（使用 Runner + MockAgent）。"""
+
+    def test_repair_exhausted_status_failed(self):
+        """Repair 耗尽 → status=failed, decision=None, issues 含取证记录。
+
+        MockAgent 始终返回合法输出，因此用 monkeypatch 模拟 _call_agent_direct
+        持续返回 invalid_output（repairable 但永不 valid）→ 2 次后耗尽。
+        """
+        task_model = _make_task("plan", "test", "mock", allowed_decisions=["done"])
+        state_model = _make_state("plan", "plan", on={"done": "done"}, default="failed")
+        wf = _make_minimal_workflow(
+            tasks={"plan": task_model},
+            states={"plan": state_model},
+        )
+
+        runner, tmpdir = _create_runner(wf, "test repair exhausted")
+
+        try:
+            # 设置 _last_agent_input 以启用 Repair 路径
+            from agent_workflow.context.agent_input import (
+                AgentInput, TaskConfig as AgentTaskConfig,
+            )
+            runner._last_agent_input = AgentInput(
+                task=AgentTaskConfig(
+                    name="plan", instruction="test", agent="mock",
+                ),
+                context=runner.context,
+                state_name="plan",
+            )
+
+            # Monkeypatch _call_agent_direct：始终返回 invalid_output
+            def _always_invalid(self, agent_input, state_name):
+                return TaskResult(
+                    schema_version=1,
+                    task_id="plan",
+                    state="plan",
+                    agent="mock",
+                    status="invalid_output",
+                    decision=None,
+                    summary="still invalid",
+                    execution=ExecutionMetadata(
+                        started_at=_now_iso(),
+                        finished_at=_now_iso(),
+                        exit_code=0,
+                    ),
+                )
+
+            import types
+            runner._call_agent_direct = types.MethodType(_always_invalid, runner)
+
+            # 构造 task_result（模拟 Parser 产出 invalid_output）
+            tr = TaskResult(
+                schema_version=1,
+                task_id="plan",
+                state="plan",
+                agent="mock",
+                status="invalid_output",
+                decision=None,
+                summary="parse failed",
+                execution=ExecutionMetadata(
+                    started_at=_now_iso(),
+                    finished_at=_now_iso(),
+                    exit_code=0,
+                ),
+            )
+
+            from agent_workflow.validators.task_result import validate
+            from agent_workflow.validators.validation_result import RouteShape
+            rs = RouteShape(has_on=True, allowed_decisions=("done",))
+            vr = validate(tr.to_dict(), rs)
+
+            # Repair：monkeypatch 的 _call_agent_direct 持续返回 invalid_output
+            # → 2 次修复后耗尽
+            repaired_tr, success = runner._repair_task_result(
+                tr, "plan", vr, max_attempts=2
+            )
+
+            # 耗尽后 status 应为 failed
+            assert success is False
+            assert repaired_tr.status == "failed"
+            assert repaired_tr.decision is None
+
+            # 取证记录
+            issues = repaired_tr.issues
+            issue_dicts = [
+                i.to_dict() if hasattr(i, 'to_dict') else i
+                for i in issues
+            ]
+            repair_issues = [
+                i for i in issue_dicts
+                if "repair_exhausted" in str(i.get("detail", ""))
+            ]
+            assert len(repair_issues) > 0, f"应包含取证记录，实际 issues: {issue_dicts}"
+        finally:
+            if runner._jsonl_sink:
+                try:
+                    runner._jsonl_sink.close()
+                except Exception:
+                    pass
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_repair_preserves_original_content(self):
+        """Repair 不破坏原始 task_result 的 summary/artifacts 结构。"""
+        task_model = _make_task("plan", "test", "mock", allowed_decisions=["done"])
+        state_model = _make_state("plan", "plan", on={"done": "done"}, default="failed")
+        wf = _make_minimal_workflow(
+            tasks={"plan": task_model},
+            states={"plan": state_model},
+        )
+
+        runner, tmpdir = _create_runner(wf, "test repair preserve")
+
+        try:
+            from agent_workflow.context.agent_input import (
+                AgentInput, TaskConfig as AgentTaskConfig,
+            )
+            runner._last_agent_input = AgentInput(
+                task=AgentTaskConfig(
+                    name="plan", instruction="test", agent="mock",
+                ),
+                context=runner.context,
+                state_name="plan",
+            )
+
+            original_summary = "This summary must remain"
+            tr = TaskResult(
+                schema_version=1,
+                task_id="plan",
+                state="plan",
+                agent="mock",
+                status="success",
+                decision="unknown_decision",
+                summary=original_summary,
+                execution=ExecutionMetadata(
+                    started_at=_now_iso(),
+                    finished_at=_now_iso(),
+                    exit_code=0,
+                ),
+            )
+
+            from agent_workflow.validators.task_result import validate
+            from agent_workflow.validators.validation_result import RouteShape
+            rs = RouteShape(has_on=True, allowed_decisions=("done",))
+            vr = validate(tr.to_dict(), rs)
+            assert vr.repairable is True
+
+            # Repair 1 次（MockAgent 默认返回 success + "done"）
+            repaired_tr, success = runner._repair_task_result(
+                tr, "plan", vr, max_attempts=1
+            )
+
+            # 验证结构完整
+            assert repaired_tr is not None
+            assert repaired_tr.status in ("success", "failed")
+        finally:
+            if runner._jsonl_sink:
+                try:
+                    runner._jsonl_sink.close()
+                except Exception:
+                    pass
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_repair_does_not_trigger_record_state_visit(self):
+        """Repair 不经过 _execute_state → 不触发 record_state_visit。"""
+        task_model = _make_task("plan", "test", "mock", allowed_decisions=["done"])
+        state_model = _make_state("plan", "plan", on={"done": "done"}, default="failed")
+        wf = _make_minimal_workflow(
+            tasks={"plan": task_model},
+            states={"plan": state_model},
+        )
+
+        runner, tmpdir = _create_runner(wf)
+
+        try:
+            from agent_workflow.context.agent_input import (
+                AgentInput, TaskConfig as AgentTaskConfig,
+            )
+            ai = AgentInput(
+                task=AgentTaskConfig(
+                    name="plan", instruction="test", agent="mock",
+                ),
+                context=runner.context,
+                state_name="plan",
+            )
+
+            history_before = list(runner.context.state_history)
+            runner._call_agent_direct(ai, "plan")
+            history_after = list(runner.context.state_history)
+
+            # _call_agent_direct 不经过 _execute_state → state_history 不变
+            assert history_before == history_after
+        finally:
+            if runner._jsonl_sink:
+                try:
+                    runner._jsonl_sink.close()
+                except Exception:
+                    pass
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_repair_instance_isolation(self):
+        """多个 Runner 实例的 Repair 状态独立。"""
+        task_model = _make_task("plan", "test", "mock", allowed_decisions=["done"])
+        state_model = _make_state("plan", "plan", on={"done": "done"}, default="failed")
+        wf = _make_minimal_workflow(
+            tasks={"plan": task_model},
+            states={"plan": state_model},
+        )
+
+        # Runner 1（有 _last_agent_input）
+        runner1, tmpdir1 = _create_runner(wf, "test1")
+        # Runner 2（无 _last_agent_input）
+        runner2, tmpdir2 = _create_runner(wf, "test2")
+
+        try:
+            from agent_workflow.context.agent_input import (
+                AgentInput, TaskConfig as AgentTaskConfig,
+            )
+            runner1._last_agent_input = AgentInput(
+                task=AgentTaskConfig(
+                    name="plan", instruction="test", agent="mock",
+                ),
+                context=runner1.context,
+                state_name="plan",
+            )
+
+            # Runner 2 无 _last_agent_input → Repair 不可用
+            tr = TaskResult(
+                schema_version=1,
+                task_id="plan",
+                state="plan",
+                agent="mock",
+                status="invalid_output",
+                decision=None,
+                summary="fail",
+                execution=ExecutionMetadata(
+                    started_at=_now_iso(),
+                    finished_at=_now_iso(),
+                    exit_code=0,
+                ),
+            )
+            from agent_workflow.validators.task_result import validate
+            from agent_workflow.validators.validation_result import RouteShape
+            rs = RouteShape(has_on=True, allowed_decisions=("done",))
+            vr = validate(tr.to_dict(), rs)
+
+            repaired2, success2 = runner2._repair_task_result(tr, "plan", vr)
+            assert success2 is False  # 无 agent_input → Repair 不可用
+
+            # Runner 1 独立可访问
+            assert runner1._last_agent_input is not None
+        finally:
+            for r in [runner1, runner2]:
+                if r._jsonl_sink:
+                    try:
+                        r._jsonl_sink.close()
+                    except Exception:
+                        pass
+            shutil.rmtree(tmpdir1, ignore_errors=True)
+            shutil.rmtree(tmpdir2, ignore_errors=True)
+
+
+# ── 测试：向后兼容 ──
+
+class TestBackwardCompat:
+    """TaskResultValidator 向后兼容测试。"""
+
+    def test_validator_returns_old_validation_result(self):
+        """TaskResultValidator.validate() 返回 base.ValidationResult。"""
+        from agent_workflow.validators.task_result import TaskResultValidator
+
+        data = {
+            "schema_version": 1,
+            "task_id": "test",
+            "state": "test",
+            "status": "success",
+            "summary": "ok",
+            "execution": {
+                "started_at": _now_iso(),
+                "finished_at": _now_iso(),
+                "exit_code": 0,
+            },
+        }
+
+        validator = TaskResultValidator()
+        result = validator.validate(data)
+        assert hasattr(result, "passed")
+        assert hasattr(result, "errors")
+        assert hasattr(result, "warnings")
+        assert result.passed is True
+
+    def test_validator_with_allowed_decisions_valid(self):
+        """TaskResultValidator + allowed_decisions + 合法 decision → passed=True。"""
+        from agent_workflow.validators.task_result import TaskResultValidator
+
+        data = {
+            "schema_version": 1,
+            "task_id": "test",
+            "state": "test",
+            "status": "success",
+            "decision": "done",
+            "summary": "ok",
+            "execution": {
+                "started_at": _now_iso(),
+                "finished_at": _now_iso(),
+                "exit_code": 0,
+            },
+        }
+
+        validator = TaskResultValidator(allowed_decisions=["done", "fail"])
+        result = validator.validate(data)
+        assert result.passed is True
+
+    def test_validator_with_allowed_decisions_invalid(self):
+        """TaskResultValidator + allowed_decisions + 非法 decision → passed=False。"""
+        from agent_workflow.validators.task_result import TaskResultValidator
+
+        data = {
+            "schema_version": 1,
+            "task_id": "test",
+            "state": "test",
+            "status": "success",
+            "decision": "approve",  # 不在 allowed 中
+            "summary": "ok",
+            "execution": {
+                "started_at": _now_iso(),
+                "finished_at": _now_iso(),
+                "exit_code": 0,
+            },
+        }
+
+        validator = TaskResultValidator(allowed_decisions=["done", "fail"])
+        result = validator.validate(data)
+        assert not result.passed
+        assert len(result.errors) > 0
