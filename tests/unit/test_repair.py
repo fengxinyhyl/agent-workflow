@@ -423,6 +423,157 @@ class TestRepairFlow:
 
 # ── 测试：向后兼容 ──
 
+# ── 测试：MockAgent status_script ──
+
+class TestMockAgentStatusScript:
+    """MockAgent status_script 机制测试。"""
+
+    def test_status_script_basic(self):
+        """status_script 按 attempt 返回不同 status。"""
+        from agent_workflow.agents.mock import MockAgent
+
+        agent = MockAgent({
+            "status_script": {"review": ["invalid_output", "success"]},
+            "decision_script": {"review": ["done", "approve"]},
+        })
+
+        ctx = _make_mock_context("review")
+        from agent_workflow.context.agent_input import (
+            AgentInput, TaskConfig as AgentTaskConfig,
+        )
+
+        # 第 1 次访问 → invalid_output + done
+        ctx._attempts = {"review": 1}
+        ai = AgentInput(
+            task=AgentTaskConfig(name="review", instruction="test", agent="mock"),
+            context=ctx,
+            state_name="review",
+        )
+        status = agent._resolve_status(ai)
+        decision = agent._resolve_decision(ai)
+        assert status == "invalid_output"
+        assert decision == "done"
+
+        # 第 2 次访问 → success + approve
+        ctx._attempts = {"review": 2}
+        ai2 = AgentInput(
+            task=AgentTaskConfig(name="review", instruction="test", agent="mock"),
+            context=ctx,
+            state_name="review",
+        )
+        status2 = agent._resolve_status(ai2)
+        decision2 = agent._resolve_decision(ai2)
+        assert status2 == "success"
+        assert decision2 == "approve"
+
+    def test_status_script_no_match_uses_default(self):
+        """status_script 未匹配的 state 回退到 mock_status（默认 success）。"""
+        from agent_workflow.agents.mock import MockAgent
+
+        agent = MockAgent({"status_script": {}, "mock_status": "success"})
+        ctx = _make_mock_context("plan")
+        from agent_workflow.context.agent_input import (
+            AgentInput, TaskConfig as AgentTaskConfig,
+        )
+        ai = AgentInput(
+            task=AgentTaskConfig(name="plan", instruction="test", agent="mock"),
+            context=ctx,
+            state_name="plan",
+        )
+        assert agent._resolve_status(ai) == "success"
+
+    def test_status_script_list_exhausted_uses_last(self):
+        """status_script 列表耗尽后取最后一个值。"""
+        from agent_workflow.agents.mock import MockAgent
+
+        agent = MockAgent({
+            "status_script": {"review": ["invalid_output"]},
+        })
+
+        ctx = _make_mock_context("review")
+        from agent_workflow.context.agent_input import (
+            AgentInput, TaskConfig as AgentTaskConfig,
+        )
+        ctx._attempts = {"review": 5}  # 远超列表长度
+        ai = AgentInput(
+            task=AgentTaskConfig(name="review", instruction="test", agent="mock"),
+            context=ctx,
+            state_name="review",
+        )
+        assert agent._resolve_status(ai) == "invalid_output"
+
+    def test_status_script_execute_invalid_output_triggers_repair(self):
+        """MockAgent status_script=invalid_output → execute 产出 invalid_output → 触发 Repair。"""
+        task_model = _make_task("review", "test review", "mock", allowed_decisions=["approve", "revise"])
+        state_model = _make_state("review", "review", on={"approve": "done"}, default="failed")
+        wf = _make_minimal_workflow(
+            tasks={"review": task_model},
+            states={"review": state_model},
+        )
+
+        runner, tmpdir = _create_runner(wf, "test status_script repair")
+
+        try:
+            from agent_workflow.context.agent_input import (
+                AgentInput, TaskConfig as AgentTaskConfig,
+            )
+            runner._last_agent_input = AgentInput(
+                task=AgentTaskConfig(
+                    name="review", instruction="test", agent="mock",
+                ),
+                context=runner.context,
+                state_name="review",
+            )
+
+            # 构造 Parser 产出的 invalid_output（模拟 status_script[0]=invalid_output）
+            tr = TaskResult(
+                schema_version=1,
+                task_id="review",
+                state="review",
+                agent="mock",
+                status="invalid_output",
+                decision=None,
+                summary="status_script round 1",
+                execution=ExecutionMetadata(
+                    started_at=_now_iso(),
+                    finished_at=_now_iso(),
+                    exit_code=0,
+                ),
+            )
+
+            from agent_workflow.validators.task_result import validate
+            from agent_workflow.validators.validation_result import RouteShape
+            rs = RouteShape(has_on=True, allowed_decisions=("approve", "revise"))
+            vr = validate(tr.to_dict(), rs)
+            assert vr.repairable is True
+
+            # Repair 1 次 → MockAgent（无 status_script）默认返回 success + done
+            repaired_tr, success = runner._repair_task_result(
+                tr, "review", vr, max_attempts=1
+            )
+            assert repaired_tr is not None
+        finally:
+            if runner._jsonl_sink:
+                try:
+                    runner._jsonl_sink.close()
+                except Exception:
+                    pass
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _make_mock_context(state_name="test"):
+    """构建最小 RunContext mock 用于 MockAgent 测试。"""
+    class _MockContext:
+        def __init__(self):
+            self.current_state = state_name
+            self.state_history = [state_name]
+            self._attempts = {}
+
+        def get_attempt(self, state):
+            return self._attempts.get(state, 1)
+    return _MockContext()
+
+
 class TestBackwardCompat:
     """TaskResultValidator 向后兼容测试。"""
 

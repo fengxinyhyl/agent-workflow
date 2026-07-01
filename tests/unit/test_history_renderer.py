@@ -176,3 +176,54 @@ def test_format_event_line_coverage():
     only_noise = [_make_event("Heartbeat", state="plan")]
     noise_output = _render_events(only_noise, show_all=False)
     assert "无主干事件" in noise_output
+
+
+# ── 用例 7: Runtime v2 route_by 展示 ──────────────────────────────────────
+
+def test_format_transition_with_route_by_status():
+    """TransitionSelected 含 status + route_by → 输出标注 [status] 或 [decision]。"""
+    event = _make_event("TransitionSelected", payload={
+        "current_state": "plan", "decision": "", "next_state": "failed",
+        "status": "failed", "route_by": "status",
+    })
+    line = _format_event_line(event)
+    assert "plan" in line
+    assert "failed" in line
+    assert "[status]" in line
+
+
+def test_format_transition_with_route_by_decision():
+    """TransitionSelected route_by=decision → 输出标注 [decision]。"""
+    event = _make_event("TransitionSelected", payload={
+        "current_state": "review", "decision": "approve", "next_state": "execute",
+        "status": "success", "route_by": "decision",
+    })
+    line = _format_event_line(event)
+    assert "review" in line
+    assert "approve" in line
+    assert "[decision]" in line
+
+
+def test_format_transition_with_route_by_next():
+    """TransitionSelected route_by=next → 输出标注 [next]。"""
+    event = _make_event("TransitionSelected", payload={
+        "current_state": "execute", "decision": "", "next_state": "summary",
+        "status": "success", "route_by": "next",
+    })
+    line = _format_event_line(event)
+    assert "execute" in line
+    assert "summary" in line
+    assert "[next]" in line
+
+
+def test_format_transition_no_route_by_legacy():
+    """旧格式 TransitionSelected 无 route_by → 不崩溃，正常显示。"""
+    event = _make_event("TransitionSelected", payload={
+        "current_state": "old", "decision": "done", "next_state": "next",
+    })
+    line = _format_event_line(event)
+    assert "old" in line
+    assert "next" in line
+    # 旧格式无 route_by，不应有方括号标签
+    assert "[status]" not in line
+    assert "[decision]" not in line

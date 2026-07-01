@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "task_id": "execution",
+  "state": "execution",
+  "agent": "",
+  "status": "success",
+  "decision": "done",
+  "summary": "Runtime v2 第 4 步改造完成。_unroll_single_loop 核心逻辑从硬编码键名猜测改为基于 next/on 结构区分节点角色，新增 _reroute_state_refs 统一辅助函数。存量 11 + 新增 14 个测试全通过（27/27），plan-review-advise-loop-example 展开结果字面等价。全量回归无新增失败。",
+  "artifacts": [
+    {
+      "name": "execution_report",
+      "staging_path": "G:/aw-wt/runtime-v2-step4/staging/execution/execution_report.md",
+      "artifact_path": "artifacts/execution_report.md",
+      "type": "markdown"
+    },
+    {
+      "name": "task_result",
+      "staging_path": "G:/aw-wt/runtime-v2-step4/staging/execution/task_result.json",
+      "artifact_path": "artifacts/task_result.json",
+      "type": "json"
+    }
+  ],
+  "execution": {
+    "started_at": "2026-06-30T22:16:55.319509+08:00",
+    "finished_at": "2026-06-30T22:23:52.855489+08:00",
+    "duration_seconds": 0,
+    "attempt": 1,
+    "exit_code": 0,
+    "pid": 5548
+  },
+  "issues": [],
+  "next_inputs": {},
+  "session_id": "811643ce-c885-4474-ba2e-9090a2135e19",
+  "token_usage": {
+    "input_tokens": 128349,
+    "output_tokens": 33276,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 3271168
+  },
+  "log_path": "G:\\agent-workflow\\docs\\runs\\260630_runtime-v2-step4\\logs\\execution.stream.jsonl",
+  "packet_path": "G:\\agent-workflow\\docs\\runs\\260630_runtime-v2-step4\\packets\\execution_claude_last_message.md"
+}

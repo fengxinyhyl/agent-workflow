@@ -58,8 +58,13 @@ def _format_event_line(event: dict[str, Any]) -> str:
         cur = payload.get("current_state", "")
         dec = payload.get("decision", "")
         nxt = payload.get("next_state", "")
-        if cur and dec and nxt:
-            parts.append(f"{cur} --{dec}--> {nxt}")
+        st = payload.get("status", "")
+        rb = payload.get("route_by", "")
+        if cur and nxt:
+            route_label = f"{cur} --{dec or st}--> {nxt}"
+            if rb:
+                route_label += f"  [{rb}]"
+            parts.append(route_label)
     elif evt == "ValidatorFinished":
         passed = payload.get("passed", "")
         errors = payload.get("errors", [])

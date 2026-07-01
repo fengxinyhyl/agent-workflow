@@ -11,8 +11,9 @@
 | 维度 | 说明 |
 |------|------|
 | **做什么** | YAML 定义状态机 → 引擎调度 AI Agent 按工作流协作 → 产出自动物/日志/事件 |
-| **核心价值** | 零代码编排、多 Agent 协作、产物可追溯、断点可续跑 |
+| **核心价值** | 零代码编排、多 Agent 协作、产物可追溯、断点可续跑、解析失败自愈（Repair） |
 | **适用场景** | 需求分析、方案设计、代码实现、代码审查、多模型交叉验证 |
+| **Runtime v2** | 三层职责分离（status/decision/output）、两段式路由（next/on/on_status）、Repair 闸口 |
 
 ### 命令速查
 
@@ -83,6 +84,14 @@ agent-workflow history -r <run_id>
 | **Transition 必有 default** | 未知 decision 走 `default` 分支，不会卡死 |
 | **Guard 机制** | `max_visits` / `max_duration_minutes` / `max_retries` 三重防护，防止失控循环 |
 | **Observability 内置** | EventBus → ConsoleSink + JSONLSink + Heartbeat，所有关键事件统一分发 |
+
+**Runtime v2 新增原则**（`docs/runtime-v2-design.md`）：
+
+| 原则 | 说明 |
+|------|------|
+| **三层职责分离** | `status`（Runtime 层：任务是否完成）→ `decision`（Workflow 层：走哪条分支）→ `output`（业务层：产物），每层只认识自己的词 |
+| **路由只看结构** | Runtime 仅按 `on`/`next` 存在性判断路由，不认识 `approve`/`revise` 等业务词。任何节点写 `on: {yes, no}` 自动成立 |
+| **Repair 闸口** | Parser 解析失败产出 `invalid_output`（瞬时态），在 Runner 的 Repair 闸口被消解为 `success`（修复成功）或 `failed`（修复耗尽），绝不泄露到路由层 |
 
 ---
 
@@ -288,11 +297,13 @@ agent-workflow smoke --agent <agent_name> [--agents <agents.yaml>]
 ### 核心能力
 
 - **YAML 驱动状态机**：无需写代码，一套 `workflow.yaml` 定义完整的 Agent 协作链路
+- **Runtime v2 路由模型**：`status`/`decision`/`output` 三层职责分离，`next`/`on`/`on_status` 两段式路由。Runtime 不认识业务词，存量 YAML 零改动兼容
+- **Repair 自愈闸口**：Agent 解析失败不再直接判死——产出 `invalid_output` 瞬时态，Runner 编排有界修复（1-2 次），耗尽才降级为 `failed` 并留取证记录
 - **独立工作目录与并行隔离**：`--project-root` 为每个 run 指定独立工作目录，Agent 的执行目录（`cwd`）随之解析；配合 git worktree 可让多个 run 在各自工作树中并行执行、代码改动互不覆盖，`--run-root` 可将产物统一收口到指定目录
 - **多 Agent 编排**：支持 Claude CLI、Codex CLI 等多个 Agent 在同一工作流中分工协作。Claude CLI 可通过 `command` 配置切换不同模型（Opus、DeepSeek、Haiku 等）
-- **TaskResult 契约**：标准化 JSON 输出，Agent 通过 `decision` 字段驱动状态迁移（如 `done`、`approve`、`revise`、`reject`）
+- **TaskResult 契约**：标准化 JSON 输出，Agent 通过 `decision` 字段驱动状态迁移（如 `approve`、`revise`、`reject`）；`decision` 可选，线性节点无需 decision
 - **Staging → Artifacts 两阶段**：Agent 输出先入暂存区，校验通过后才提升为正式产物流，保证产物可靠性
-- **_loop 自动展开**：声明式循环块，引擎自动展开为 `_r1`/`_r2`/... 后缀的状态序列
+- **_loop 自动展开**：声明式循环块，引擎自动展开为 `_r1`/`_r2`/... 后缀的状态序列。展开规则基于 `next`/`on` 结构区分节点角色，不再硬编码键名
 - **版本管理**：`version_strategy: increment` 在同节点回流时自动生成 `-v1`/`-v2` 后缀，保留完整版本链
 - **Guard 防护**：限制状态最大访问次数、最长运行时间、最大重试次数，防止死循环
 - **Skill 系统**：每个 task 可挂载 skill（YAML/Markdown），Runner 自动加载并注入 Agent prompt
@@ -309,7 +320,7 @@ agent-workflow smoke --agent <agent_name> [--agents <agents.yaml>]
 **查询接口**（具体用法见 [CLI 命令参考](#cli-命令参考)）：
 - `status` — 当前 state、运行时长、心跳、产物列表
 - `explain` — 为何停在此处、allowed_decisions、可能的后续走向、Guard 状态
-- `history` — 事件因果时间线，支持 `--why` 反查指定 state 的进入原因链
+- `history` — 事件因果时间线，支持 `--why` 反查指定 state 的进入原因链；Transition 行标注路由依据 `[status]`/`[decision]`/`[next]`
 - `log / tail` — 汇总日志 / 按节点查看最近 N 行输出
 
 ### 持久化存储
@@ -334,7 +345,7 @@ agent-workflow smoke --agent <agent_name> [--agents <agents.yaml>]
 
 ### Agent 适配器
 
-- **MockAgent**：不调用外部 CLI，生成 mock 输出。支持 `decision_script` 配置（按 state 访问次数返回不同 decision，演示状态机回流）
+- **MockAgent**：不调用外部 CLI，生成 mock 输出。支持 `decision_script`（按 state 访问次数返回不同 decision）和 `status_script`（按 state 访问次数返回不同 status，演示 `invalid_output→repair` 回流）
 - **ClaudeCLI**：调用 Claude CLI (`claude`)，解析 stream-json 输出提取 token usage / session_id。通过 `command` 配置可指定不同模型（如 Opus、DeepSeek、Haiku），provider 统一为 `claude`
 - **CodexCLI**：调用 Codex CLI (`codex exec`)，解析 JSONL 输出提取 thread_id / usage
 - **CommandAgent**：执行自定义 shell 命令。默认禁用（`enabled: false`），启用后命令需通过 `CommandValidator` 白名单安全检查，禁止 shell 元字符和危险操作
@@ -504,36 +515,68 @@ tasks:
 
 每个 state 定义状态机的"节点"——执行哪个 task、每种 decision 跳转到哪。
 
+**Runtime v2 路由模型**：state 的路由字段分为三类，按优先级排列：
+
+| 字段 | 用途 | 适用节点 |
+|------|------|----------|
+| `next` | 成功后的唯一后继（线性节点） | 执行节点 |
+| `on` | `decision → 后继` 映射（分支节点） | 审核/决策节点 |
+| `on_status` | `status → 后继`，**可选**，仅当 `blocked` 想去到不同于 `failed` 处 | 任意 |
+| `default` | 兜底出口（未知 decision 或 status 无匹配） | 任意非终止节点 |
+
+一个非终止节点必须恰好定义一条成功路径：`on`（分支）或 `next`（线性），二选一。
+
 ```yaml
 states:
   <state_name>:                 # State 唯一标识
     task: <task_name>           # ★ 关联的 task 名（必需，"" 表示无 task）
                                 #   必须已在 tasks 中定义
 
-    on:                         # ★ Decision → next_state 映射（必需）
-      done: <next_state>        #   key 必须匹配 task 的 allowed_decisions
-      fail: <next_state>
-      blocked: <next_state>
-      # 决策节点的典型映射：
-      # approve: <next_state>
-      # revise: <prev_state>    # 回流到上游
-      # reject: failed
+    # ── 成功出口（二选一）──
+    next: <state_name>          # 线性节点：成功后的唯一后继
+    # 或：
+    on:                         # 分支节点：decision → next_state 映射
+      approve: <next_state>     #   key 必须匹配 task 的 allowed_decisions
+      revise: <prev_state>      #   回流到上游
+      reject: failed
 
-    default: <state_name>       # ★ 未知 decision 的默认跳转（必需）
+    # ── 失败/阻塞出口（可选）──
+    on_status:                  # status → 后继，仅当目标不同于 default 时
+      blocked: <state_name>     #   例：blocked 跳到人工处理而非直接失败
 
+    # ── 兜底 ──
+    default: <state_name>       # ★ 未知 decision/status 的默认跳转（必需）
 
     description: ""             # 描述（可选）
     gate: false                 # 是否为 Gate 状态（可选，默认 false）
-                                #   true = 需外部 approve 才能继续
     terminal: true              # 仅终止状态使用（done/failed/cancelled）
 ```
 
+**路由逻辑（两段式）**：
+
+```
+resolve(status, decision, state):
+    if status != "success":              # 只可能是 failed / blocked
+        return state.on_status.get(status) or state.default
+    elif state.on:                       # 分支节点
+        return state.on.get(decision) or state.default
+    elif state.next:                     # 线性节点
+        return state.next
+    else:
+        return state.default             # 配置疏漏，启动期校验拦截
+```
+
+Runtime 全程只看 `status != success` 与 `state.on / state.next` 的存在性，不碰任何业务词。
+
+**旧格式兼容**：旧 YAML 的 `on: {done, fail, blocked, approve, ...}` 写法在加载时自动归一化为新模型——`done → next`、`fail/blocked → on_status`（仅当不同于 default）、`approve/revise/reject` 保留在 `on`。**存量工作流零改动**即可在新 Runtime 跑通。
+
 **State 设计要求**：
 
-1. **`on` 的 key 必须是 task 的 `allowed_decisions` 子集**（不必全部覆盖，未覆盖的走 `default`）
-2. **每个非终止 state 必须定义 `default`**，防止未知 decision 卡死
-3. **`task: ""` 只用于终止状态**（done/failed/cancelled），它们设 `terminal: true`
-4. **回流边**：审核节点的 `revise` 应指回被审核节点的 state（如 `code_audit` 的 `revise → implement`）
+1. 非终止 state 必须恰好定义一条成功路径（`on` 或 `next`，二选一），缺失或同时定义会在 `validate-state-machine` 时拦截
+2. 有 `on` 的节点 → 对应 task 必须声明 `allowed_decisions`，且 `on` 的键覆盖 `allowed_decisions`
+3. 每个非终止 state 必须定义 `default`
+4. `task: ""` 只用于终止状态（done/failed/cancelled），设 `terminal: true`
+5. 回流边：审核节点的 `revise` 应指回被审核节点的 state
 
 #### 终止状态模板
 
@@ -709,11 +752,17 @@ skill:
 ### mock_script.yaml：Mock 测试脚本
 
 ```yaml
-decision_script:
-  <state_name>:         # State 的 base 名（不含 _rN 后缀）
-    - <decision_1>       # 第 1 次访问该 state 返回此 decision
-    - <decision_2>       # 第 2 次访问返回此 decision
-    # 列表耗尽后始终返回最后一个值
+decision_script:          # decision 脚本（按 state 访问次数返回不同 decision）
+  <state_name>:           #   State 的 base 名（不含 _rN 后缀）
+    - <decision_1>        #   第 1 次访问该 state 返回此 decision
+    - <decision_2>        #   第 2 次访问返回此 decision
+                          #   列表耗尽后始终返回最后一个值
+
+status_script:            # status 脚本（Runtime v2 新增）
+  <state_name>:           #   按 state 访问次数返回不同 status
+    - invalid_output      #   第 1 次访问 → Parser 失败 → 触发 Repair
+    - success             #   第 2 次访问 → 正常通过
+                          #   用于演示 invalid_output→repair 回流
 ```
 
 示例——演示回流：
@@ -722,7 +771,7 @@ decision_script:
   plan:
     - done
   review:
-    - advise         # 第 1 次：触发回流
+    - revise         # 第 1 次：触发回流
     - approve        # 第 2 次：通过
   advise:
     - done
@@ -730,7 +779,18 @@ decision_script:
     - done
 ```
 
-预期链路：`plan → review(advise) → advise → plan → review(approve) → execute → done`
+示例——演示 Repair 闸口（Runtime v2）：
+```yaml
+status_script:
+  review:
+    - invalid_output    # 第 1 次：模拟解析失败，触发 Repair
+    - success           # 第 2 次（Repair 后）：通过
+decision_script:
+  review:
+    - approve
+    - approve
+```
+预期链路：`review(invalid_output) → Repair → review(success, approve) → execute → done`
 
 ---
 
@@ -858,15 +918,14 @@ tasks:
       - blocked
 
 states:
+  # 线性节点：用 next 表示成功出口
   plan:
     task: plan
-    on:
-      done: review
-      fail: failed
-      blocked: failed
+    next: review
     default: failed
     description: "编写实现计划"
 
+  # 分支节点：用 on 表示 decision → 后继映射
   review:
     task: review
     on:
@@ -876,14 +935,14 @@ states:
     default: failed
     description: "审核实现计划"
 
+  # 线性节点：成功直接到 done
   execute:
     task: execute
-    on:
-      done: done
-      fail: failed
-      blocked: failed
+    next: done
     default: failed
     description: "执行代码变更"
+
+  # 旧格式 on: {done, fail, blocked} 仍兼容，加载时自动归一化为 next + on_status
 
   done:
     task: ""
@@ -994,7 +1053,19 @@ agent-workflow run \
 A → B → C → D → done
 ```
 
-适用：步骤确定、不需反复审核的简单流程。每个 task 用 `done / fail / blocked`，state 的 `on` 只有前向映射。
+适用：步骤确定、不需反复审核的简单流程。每个 task 用 `done / fail / blocked`，state 用 `next`（线性节点）：
+
+```yaml
+states:
+  A:
+    task: task_a
+    next: B
+    default: failed
+  B:
+    task: task_b
+    next: C
+    default: failed
+```
 
 #### 模式 2：审核-回流
 
@@ -1004,7 +1075,23 @@ plan → review ──approve──▶ execute → done
   └─revise─┘
 ```
 
-核心：review 节点设 `approve / revise / reject`，`revise → plan` 形成回流环。plan 需设 `version_strategy: increment` 保留每版计划。
+核心：review 用分支节点（`on`），plan/execute 用线性节点（`next`）。plan 需设 `version_strategy: increment` 保留每版计划。
+
+```yaml
+states:
+  plan:
+    task: plan
+    next: review
+    default: failed
+  review:
+    task: review
+    on: {approve: execute, revise: plan, reject: failed}
+    default: failed
+  execute:
+    task: execute
+    next: done
+    default: failed
+```
 
 #### 模式 3：多轮审核（_loop 展开）
 
@@ -1098,6 +1185,8 @@ states:
 - [ ] `on_break` 目标 state 在 `states` 中已定义
 - [ ] 所有 `task.agent` 在 `agents.yaml` 中有对应配置
 - [ ] 所有 `task.skills` 和 `required_skills` 在 `skills/` 目录存在
+- [ ] **Runtime v2**：非终止 state 恰好定义一条成功路径（`on` 或 `next`，二选一）
+- [ ] **Runtime v2**：有 `on` 的 state 对应 task 声明了 `allowed_decisions`
 
 可以用内置校验命令验证：
 ```bash
@@ -1142,7 +1231,7 @@ agent-workflow validate-state-machine -w <workflow.yaml>
 3. **skill_adoption 文件命名**：`skill_adoption_<state>.md`，用下划线代替层级
 4. **increment 版本后缀**：同节点回流时自动生成 `-v1`/`-v2` 后缀，`artifacts` 下保留完整链，引用的 `artifacts/<name>.md` 始终指向最新版
 
-### TaskResult 契约
+### TaskResult 契约（Runtime v2）
 
 Agent 必须输出标准 JSON，核心字段：
 
@@ -1173,6 +1262,17 @@ Agent 必须输出标准 JSON，核心字段：
   "token_usage": { "input": 1000, "output": 500 }
 }
 ```
+
+**Runtime v2 关键变化**：
+
+| 变化 | 说明 |
+|------|------|
+| `decision` 可选 | 默认值 `None`，不再强制 `"done"`。线性节点（有 `next` 无 `on`）不需要 decision |
+| `status` 扩展 | 新增 `invalid_output`——Parser 解析失败时产出的 Runtime 内部瞬时态。不参与路由，在 Repair 闸口消解 |
+| decision 合法性下沉 | Runtime 不再维护全局 decision 白名单，合法性由各 task 的 `allowed_decisions` 决定 |
+| 三层语义分离 | `status`=任务完成态（Runtime） → `decision`=分支选择（Workflow） → `output/artifacts`=业务产物（透明） |
+
+详细设计见 [`docs/runtime-v2-design.md`](docs/runtime-v2-design.md)。
 
 ---
 

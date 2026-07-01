@@ -23,9 +23,18 @@ class MockAgent(BaseAgent):
     - 生成合法的 TaskResult JSON
     - 用于测试整个 Pipeline 的正确性
 
+    Runtime v2: 支持 status_script，按 state 访问次数返回不同 status，
+    用于演示 invalid_output→repair 回流。
+
     用法:
         agent = MockAgent({"name": "mock_planner"})
         result = agent.execute(agent_input)
+
+        # 演示 invalid_output → repair 回流：
+        agent = MockAgent({
+            "status_script": {"review": ["invalid_output", "success"]},
+            "decision_script": {"review": ["approve", "approve"]},
+        })
     """
 
     name = "mock"
@@ -35,10 +44,15 @@ class MockAgent(BaseAgent):
         super().__init__(config)
         self.name = config.get("name", "mock") if config else "mock"
         self._mock_decision = config.get("mock_decision", "done") if config else "done"
+        self._mock_status = config.get("mock_status", "success") if config else "success"
         # decision_script: 按 state 名映射到一个 decision 列表，按 state 的访问次数取值。
         # 用于在 mock 模式下演示状态机的回流分支（如 review 第 1 次 advise、第 2 次 approve）。
         # 形如 {"review": ["advise", "approve"]}；列表耗尽后取最后一个。
         self._decision_script = config.get("decision_script", {}) if config else {}
+        # status_script: 按 state 名映射到一个 status 列表，按 state 的访问次数取值。
+        # 用于在 mock 模式下演示 invalid_output→repair 回流。
+        # 形如 {"review": ["invalid_output", "success"]}；列表耗尽后取最后一个。
+        self._status_script = config.get("status_script", {}) if config else {}
 
     def execute(self, agent_input: AgentInput) -> TaskResult:
         """执行 mock 任务。"""
@@ -69,7 +83,7 @@ class MockAgent(BaseAgent):
             task_id=task_id,
             state=state_name,
             agent=self.name,
-            status="success",
+            status=self._resolve_status(agent_input),
             decision=self._resolve_decision(agent_input),
             summary=f"Mock 执行完成: {instruction[:100]}",
             artifacts=[{
@@ -126,6 +140,30 @@ class MockAgent(BaseAgent):
             return allowed[0] if allowed else "done"
 
         return self._mock_decision
+
+    def _resolve_status(self, agent_input: AgentInput) -> str:
+        """解析 mock status（Runtime v2）。
+
+        优先级：
+        1. status_script[state]：按 state 的访问次数（attempt，1-based）取脚本中的
+           status，用于演示 invalid_output→repair 回流。列表耗尽后取最后一个。
+        2. 回退到 self._mock_status。
+        """
+        state_name = (
+            agent_input.state_name
+            or (agent_input.context.current_state if agent_input.context else None)
+            or agent_input.task.name
+        )
+
+        script = self._status_script.get(state_name)
+        if script:
+            attempt = 1
+            if agent_input.context is not None:
+                attempt = max(1, agent_input.context.get_attempt(state_name))
+            idx = min(attempt - 1, len(script) - 1)
+            return script[idx]
+
+        return self._mock_status
 
     def _write_staging_artifacts(
         self,
