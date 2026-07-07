@@ -167,6 +167,7 @@ def load_agent(data: dict[str, Any]) -> AgentModel:
         sandbox=data.get("sandbox", ""),
         permission_mode=data.get("permission_mode", ""),
         allowed_tools=data.get("allowed_tools", ""),
+        enabled=_as_bool(data.get("enabled", False)),
         timeout_seconds=data.get("timeout_seconds", 3600),
         description=data.get("description", ""),
     )

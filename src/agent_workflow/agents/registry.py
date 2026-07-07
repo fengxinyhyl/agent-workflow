@@ -49,6 +49,11 @@ class AgentRegistry:
             self._agent_classes["claude"] = ClaudeCLI
         except ImportError:
             pass
+        try:
+            from .command import CommandAgent
+            self._agent_classes["command"] = CommandAgent
+        except ImportError:
+            pass
 
     def register(self, name: str, agent: BaseAgent):
         """注册一个 Agent 实例。"""
@@ -104,6 +109,13 @@ class AgentRegistry:
                     self._agent_classes["claude"] = ClaudeCLI
                 except ImportError:
                     pass
+            elif provider == "command":
+                try:
+                    from .command import CommandAgent
+                    agent_class = CommandAgent
+                    self._agent_classes["command"] = CommandAgent
+                except ImportError:
+                    pass
 
         if agent_class is None:
             return None
@@ -115,6 +127,9 @@ class AgentRegistry:
             "cwd": config.cwd,
             "timeout_seconds": config.timeout_seconds,
         }
+        # command provider 专用：透传 enabled 开关（默认禁用，须显式启用）
+        if getattr(config, "enabled", False):
+            cfg["enabled"] = True
         # 仅在显式配置时传递，留空则由 adapter 使用自身默认值
         if getattr(config, "permission_mode", ""):
             cfg["permission_mode"] = config.permission_mode

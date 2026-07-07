@@ -348,7 +348,7 @@ agent-workflow smoke --agent <agent_name> [--agents <agents.yaml>]
 - **MockAgent**：不调用外部 CLI，生成 mock 输出。支持 `decision_script`（按 state 访问次数返回不同 decision）和 `status_script`（按 state 访问次数返回不同 status，演示 `invalid_output→repair` 回流）
 - **ClaudeCLI**：调用 Claude CLI (`claude`)，解析 stream-json 输出提取 token usage / session_id。通过 `command` 配置可指定不同模型（如 Opus、DeepSeek、Haiku），provider 统一为 `claude`
 - **CodexCLI**：调用 Codex CLI (`codex exec`)，解析 JSONL 输出提取 thread_id / usage
-- **CommandAgent**：执行自定义 shell 命令。默认禁用（`enabled: false`），启用后命令需通过 `CommandValidator` 白名单安全检查，禁止 shell 元字符和危险操作
+- **CommandAgent**：执行自定义 shell 命令（如 lint、test、coverage 脚本）。默认禁用（`enabled: false`），启用后命令需通过 `CommandValidator` 白名单安全检查（禁止 shell 元字符、危险 git 操作、非白名单命令）。支持 `command`/`cwd`/`timeout_seconds` 配置，输出产物自动落盘 staging 并登记 artifact。适用于 CI 门禁节点（如 coverage_check）
 - **安全拦截**：`_assert_safe_permission()` 拒绝 `--dangerouslyDisableSandbox` / `--permission-mode bypass`；`_assert_safe_sandbox()` 白名单限制 Codex `--sandbox` 值
 
 ---
@@ -690,6 +690,47 @@ agents:
 | `command` | CommandAgent（自定义 shell 命令） | 不适用 | 不适用 |
 
 > **注意**：`command` provider 默认 `enabled: false`，需显式开启。执行的命令需通过 `CommandValidator` 白名单安全检查。
+
+**command provider 配置示例**：
+
+```yaml
+agents:
+  # 覆盖率检查（CI 门禁节点）
+  coverage_check:
+    provider: command
+    command: "pytest tests/ --cov --cov-report=term"
+    cwd: "{project_root}"
+    timeout_seconds: 300
+    enabled: true
+    description: "运行测试并输出覆盖率报告"
+
+  # Python 语法检查
+  lint_check:
+    provider: command
+    command: "python -m py_compile src/**/*.py"
+    cwd: "{project_root}"
+    timeout_seconds: 120
+    enabled: true
+    description: "Python 语法编译检查"
+```
+
+**command provider 字段说明**：
+
+| 字段 | 必需 | 默认值 | 说明 |
+|------|------|--------|------|
+| `provider` | ✅ | — | 固定为 `command` |
+| `command` | ✅ | `""` | 要执行的 shell 命令（支持 `{project_root}`、`{run_root}`、`{goal}` 占位符） |
+| `enabled` | ✅ | `false` | 必须显式设为 `true`，否则执行时返回 `blocked` |
+| `cwd` | 否 | `{project_root}` | 命令工作目录 |
+| `timeout_seconds` | 否 | `300` | 命令超时秒数 |
+| `description` | 否 | `""` | 描述 |
+
+**安全机制**：
+- 命令通过 `CommandValidator` 白名单校验（`src/agent_workflow/validators/command.py`）
+- 允许的命令：`cat`、`grep`、`python`、`pytest`、`git status/log/diff` 等文件读取和环境信息命令
+- 需要写入权限的 git 子命令（`add`/`commit`/`push`）需在代码中传 `allow_write=True`
+- 禁止：shell 链式操作符（`&&`、`|`、`;`）、危险 git 操作（`reset`、`clean`、`--force` push）、非白名单命令
+- 命令以 list 形式传给 `subprocess.Popen`，不经过 shell 解析，防止注入
 
 **Mock 模式**：当 agents.yaml 中找不到 task 引用的 agent 名时，自动 fallback 到 MockAgent。MockAgent 按 `mock_script.yaml` 中对应 state 的 decision 列表输出。
 
@@ -1396,7 +1437,7 @@ src/agent_workflow/
   config/                  # YAML 配置模型 (TaskModel/StateModel/AgentModel/GuardModel/WorkflowConfig) 与加载器
   state_machine/           # StateMachine、Runner（主循环）、Transition、Guard、Retry
   tasks/                   # TaskResult（标准化 Agent 输出）、result_schema（JSON Schema 生成）
-  agents/                  # Agent 适配器：BaseAgent → MockAgent / ClaudeCLI / CodexCLI
+  agents/                  # Agent 适配器：BaseAgent → MockAgent / ClaudeCLI / CodexCLI / Command
   artifacts/               # Staging 暂存、Promotion、Resolver
   skills/                  # Skill 模型、YAML/Markdown 加载、Adoption 协议、Policy 解析
   validators/              # TaskResult / Artifact / Repo / Command 校验器
