@@ -1,0 +1,41 @@
+skill:
+  name: mapping-check
+  version: "1"
+  description: "模块覆盖审查 gate 节点规范——审查模块覆盖完整性、依赖合理性、波次正确性和四列追溯定位表"
+  policy:
+    allowed_decisions:
+      - approve
+      - reject
+      - fail
+      - blocked
+    forbidden_actions:
+      - "自行新增模块或补充覆盖（修订指令写进裁决文件，交 finalize 应用）"
+      - "修改架构决策"
+      - "跳过审查维度直接 approve"
+      - "在产物正文输出 YAML frontmatter 或 lineage/artifact_id 标识（frontmatter 由命令层 attach 维护）"
+  content: |
+    # Mapping Check Gate Node
+
+    本节点是本工作流唯一的 Human Gate——人审模块拆解结果。
+
+    CR/表的机械覆盖已由上游 coverage_gate 确定性脚本兜住（见 coverage_report），
+    本节点不重复核对覆盖计数，只审脚本管不了的语义维度。
+
+    ## 审查维度
+
+    1. 架构落点对应：模块↔架构组件是否匹配，有无悬空或遗漏
+    2. 依赖 DAG 合理性：是否与架构数据流/调用链一致，有无循环
+    3. 并行波次正确性：同波模块是否真的无依赖、无写冲突
+    4. 模块边界合理性：划分是否内聚、职责是否清晰、粒度是否适合并行开发
+    5. coverage_report 语义复核：脚本已判 CR/表全覆盖，人工确认覆盖映射是否
+       语义正确（模块声称覆盖某 CR 是否真的承接了该职责，而非仅编号挂靠）
+
+    ## 决策
+
+    - `approve`: 全部通过，进入 finalize
+    - `revise`: 有问题需修正，进入 refine
+    - `reject`: 方案方向或输入不可接受，终止
+
+    ## 审查意见格式
+
+    每条意见：`模块ID | 问题类型(架构落点/依赖/波次/边界) | 问题描述 | 建议修复方向`

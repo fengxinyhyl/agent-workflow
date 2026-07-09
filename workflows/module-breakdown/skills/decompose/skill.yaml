@@ -1,0 +1,54 @@
+skill:
+  name: decompose
+  version: "1"
+  description: "模块拆解节点规范——从架构+数据模型拆出模块清单、依赖DAG、并行波次和四列追溯定位表"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "输出代码实现"
+      - "写具体开发排期"
+      - "做架构决策（那是 system-architecture 的事）"
+      - "自由修改已冻结的 final_architecture 或 data_model"
+  content: |
+    # Decompose Node
+
+    基于冻结架构 + 数据模型 + 规范化需求，将系统拆解为可独立开发、可并行调度的模块。
+
+    ## 必须包含
+
+    - 模块清单总表（ID/名称/职责/依赖/产出物/复杂度）
+    - 依赖 DAG（Mermaid graph TD）
+    - 并行波次（每波列出可并行模块及理由）
+    - 四列追溯定位表（模块→需求CR/架构落点/数据表/AC-HC）
+    - 每个模块的详情（职责范围/上下游依赖/关键产出物/对应架构组件/涉及数据表/覆盖CR-AC/实现注意事项）
+    - 供 coverage_gate 机读的 fenced block（语言标 `module-coverage`），每模块一条，
+      声明其覆盖的 CR 与负责的数据表。这是确定性门的唯一输入，缺失或漏项会直接判失败：
+
+      ```module-coverage
+      - module: M15                              # 模块 ID
+        covers_cr: [CR-01, CR-02]                # 覆盖的 CR，元素须是 final_requirement 中真实存在的编号
+        covers_table: [master_community, ...]    # 负责的数据表，元素须是 data_model 中真实表名（无表可留空 [])
+      ```
+
+      **契约**：final_requirement 的全部 CR 必须被某模块的 covers_cr 覆盖；data_model 的
+      全部表必须被某模块的 covers_table 负责；引用不存在的 CR/表会判悬空阻断。
+      按裁决移出范围的 CR（如术语 rename）用 `coverage exclude` 块登记豁免，不进分母：
+
+      ```coverage exclude
+      - id: CR-33
+        reason: OQ-03 术语 rename 项，不进 Coverage 分母
+      ```
+
+    ## 模块 ID 格式
+
+    - `Mxx`（两位数字），新建模块从既有最大编号+1 开始
+    - 可拆子模块用 `Mxxa`/`Mxxb`
+
+    ## 判断标准
+
+    - `done`: 完整覆盖全部 CR/AC/架构组件/数据表，依赖DAG无循环，波次合理。
+    - `blocked`: 上游产物不完整，无法可靠拆解。
+    - `fail`: 拆解过程失败或发现不可调和的架构冲突。

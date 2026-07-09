@@ -1,0 +1,38 @@
+skill:
+  name: refine
+  version: "1"
+  description: "模块拆解修订节点规范——基于审查意见修订模块拆解，只修不改"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "自由发挥、重新设计架构"
+      - "新增未经审查的模块"
+      - "忽略审查意见自行修改"
+  content: |
+    # Refine Node
+
+    基于 mapping_review 的审查意见修订 module_breakdown_draft。
+
+    ## 修订约束
+
+    - 只能基于 mapping_review 中列出的具体问题修订
+    - 每条审查意见必须有对应的修订响应
+    - 不新增架构决策、不重新拆解
+
+    ## 产物
+
+    修订后的 module_breakdown_draft（覆盖原草稿）：
+    - 修订响应表（审查意见→修订内容→修订位置）
+    - 完整的修订后模块清单、依赖DAG、并行波次、四列追溯定位表
+    - `module-coverage` 机读 block（同 decompose 约定，随修订同步更新）——
+      修订后要重新过 coverage_gate 确定性门，此块缺失或漏项会判失败
+    - 修订前后 diff 摘要
+
+    ## 判断标准
+
+    - `done`: 全部审查意见已响应，修订完成，返回 coverage_gate 重新过门。
+    - `blocked`: 审查意见指向架构问题，需回 Architecture Command 解决。
+    - `fail`: 修订过程失败。

@@ -1,0 +1,37 @@
+skill:
+  name: agent-workflow-lifecycle
+  version: "1"
+  description: "共享的 agent-workflow 生命周期约定"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+      - approve
+      - revise
+      - reject
+    forbidden_actions:
+      - "绕过 allowed_decisions 返回未声明的 decision"
+  content: |
+    # Agent Workflow Lifecycle
+
+    所有 module-breakdown 节点的共享约定。
+
+    ## TaskResult 格式
+
+    ```markdown
+    | 字段 | 值 |
+    |------|-----|
+    | status | success / failed |
+    | decision | done / fail / blocked / approve / revise / reject |
+    | summary | 一段话总结 |
+    ```
+
+    ## 产物落盘
+
+    所有 Markdown 产物写入 staging 目录后自动 promote 到 artifacts/。
+
+    ## Gate 节点
+
+    `mapping_check` 是 gate 节点（`gate: true`），Runner 在此暂停等待人工决策。
+    外部通过 `continue --approve` 或 `continue --revise` 注入决策继续。

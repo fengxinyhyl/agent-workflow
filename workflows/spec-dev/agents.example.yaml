@@ -1,0 +1,35 @@
+# Agent 配置模板（纳入版本库，命令使用通用默认 claude/codex，开箱即用）。
+#
+# 引擎实际加载的是同目录的 agents.yaml（已被 .gitignore 忽略、不入库）。
+# 首次使用：复制本文件为 agents.yaml，按需把 command 改成个人 wrapper（如 cc-opus/cc-deepseek）：
+#     cp agents.example.yaml agents.yaml
+# 若不复制，请确保存在 agents.yaml，否则引擎读不到 agent 配置。
+
+agents:
+  claude:
+    provider: claude
+    command: "claude"
+    cwd: "{project_root}"
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write"
+    timeout_seconds: 3600
+    description: "Claude Opus — 列计划/修订计划/总结"
+
+  deepseek:
+    provider: claude
+    command: "claude"
+    cwd: "{project_root}"
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write,Edit,Bash"
+    timeout_seconds: 3600
+    description: "Claude DeepSeek — 审核计划/执行任务/修订任务"
+
+  codex:
+    provider: codex
+    command: "codex"
+    cwd: "{project_root}"
+    sandbox: workspace-write
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write"
+    timeout_seconds: 7200
+    description: "Codex — 审核结果/校验测试"

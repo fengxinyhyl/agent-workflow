@@ -1,0 +1,47 @@
+# Agent 配置模板（纳入版本库，命令使用通用默认 claude/codex，开箱即用）。
+#
+# 引擎实际加载的是同目录的 agents.yaml（已被 .gitignore 忽略、不入库）。
+# 首次使用：复制本文件为 agents.yaml，按需把 command 改成个人 wrapper（如 cc-opus/cc-deepseek）：
+#     cp agents.example.yaml agents.yaml
+# 若不复制，请确保存在 agents.yaml，否则引擎读不到 agent 配置。
+
+agents:
+  claude:
+    provider: claude
+    command: "claude"
+    cwd: "{project_root}"
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write,Edit"
+    timeout_seconds: 3600
+    description: "Claude Opus — 复杂需求理解、澄清问题与最终需求综合"
+
+  deepseek:
+    provider: claude
+    command: "claude"
+    cwd: "{project_root}"
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write,Edit"
+    timeout_seconds: 3600
+    description: "DeepSeek — 独立理解和反向检查遗漏"
+
+  codex:
+    provider: codex
+    command: "codex"
+    cwd: "{project_root}"
+    sandbox: workspace-write
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write"
+    timeout_seconds: 3600
+    description: "Codex — 结构化理解、交叉检查与共识合并"
+
+  # Layer4 Coverage Check 脚本节点（确定性看板，非 LLM）。
+  # 覆盖缺口只标红进 coverage_report、不阻断：exit 0 -> done（无论是否有未追溯项）。
+  # 仅硬错误（产物缺失 / 机读块缺失，报告产不出）exit 1 -> fail -> workflow failed。
+  # 引擎侧 CommandAgent 已接线（registry command provider + enabled 解析 + 产物落盘）。
+  coverage_check:
+    provider: command
+    enabled: true
+    command: "python {project_root}/workflows/requirement-understanding/command/coverage_check.py {run_root}"
+    cwd: "{project_root}"
+    timeout_seconds: 300
+    description: "Coverage Check — 确定性脚本看板，度量 Canonicalization Recall（不阻断）"

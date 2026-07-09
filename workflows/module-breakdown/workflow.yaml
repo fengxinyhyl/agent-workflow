@@ -1,0 +1,324 @@
+# module-breakdown Workflow
+# 从冻结架构 + 数据模型出发，拆解为可并行开发的模块定义:
+#   decompose -> coverage_gate（确定性门：CR/表覆盖+悬空引用）-> mapping_check（二元 Human Gate）
+#     approve -> finalize（应用人工裁决 + 锁定）-> done
+#     reject  -> failed
+#   人工修订意见经 continue --input 注入裁决文件，由 finalize 应用（对齐 requirement-understanding，
+#   引擎 human gate 只支持 approve/reject，无 revise 回流）。
+#
+# 输入（由 Module Breakdown Command 的 collect 注入）：
+#   - final_architecture + data_model（同 lineage 的 Runtime Artifact）
+#   - final_requirement（Seed Artifact，按 artifact_id 定位）
+#
+# 产物（Runtime Artifact，propagate 同 lineage_id）：
+#   module_breakdown —— 模块清单、依赖DAG、并行波次、四列追溯定位表
+
+name: module-breakdown
+version: "1"
+description: |
+  消费 Module Breakdown Command 的 collect 注入的上下文（同 lineage 的 final_architecture +
+  data_model + Seed Artifact final_requirement），拆解为可并行开发的模块定义。
+  含依赖 DAG、并行波次和四列追溯定位表（模块→需求/架构/数据表/AC）。
+
+initial_state: decompose
+
+guards:
+  max_visits: 3
+  max_duration_minutes: 180
+  max_retries: 2
+  on_guard_failed: failed
+
+terminal_states:
+  - done
+  - failed
+  - cancelled
+
+required_skills:
+  - agent-workflow-lifecycle
+
+tasks:
+  decompose:
+    instruction: |
+      基于注入的上下文（final_architecture + data_model + final_requirement），
+      将系统拆解为可独立开发、可并行调度的模块。
+
+      ## 输入
+
+      从 Module Breakdown Command 的 collect 注入的上下文中提取：
+      - final_architecture：组件职责、系统边界、业务流程、ADR、API/集成契约
+      - data_model：实体关系、DDL、migration、索引策略
+      - final_requirement：Canonical 实体与规则（CR-01~CR-34）、验收标准
+      - （如同 lineage 有历史 module_breakdown，collect 已注入，用于识别模块变更）
+
+      ## 模块拆解原则
+
+      1. 一个模块 = 一个可独立开发、测试、交付的单元
+      2. 模块粒度对齐架构中的组件边界，但不一定一一对应（大组件可拆子模块）
+      3. 数据库 DDL 单独成模块（M01），在所有业务模块之前
+      4. 前端页面与后端 API + Service 按耦合度决定是否合并为一个模块
+      5. 共享基础设施（中间件/权限/配置）单独成模块
+
+      ## 产物 module_breakdown（草稿）必须包含
+
+      ### 1. 模块清单总表
+
+      | ID | 模块名称 | 职责摘要 | 输入依赖（模块ID） | 产出物 | 预估复杂度 |
+      |----|---------|---------|-------------------|--------|-----------|
+
+      ### 2. 依赖 DAG
+
+      ```mermaid
+      graph TD
+        M01[数据库Schema] --> M02[后端骨架]
+        M02 --> M03[业务API]
+        ...
+      ```
+
+      ### 3. 并行波次
+
+      按依赖关系分组：
+      - W1（无依赖，可并行）：M01
+      - W2（依赖 W1）：M02, M03
+      - ...
+
+      每波列出可并行的模块 ID 和理由（无相互依赖、无共享写冲突）。
+
+      ### 4. 四列追溯定位表（R4）
+
+      | 模块ID | 需求章节(CR-xx) | 架构落点(组件/接口/表) | AC/HC |
+      |--------|----------------|----------------------|-------|
+
+      此表是"架构一变就知道哪些模块要改"的唯一载体——必须完整覆盖全部 CR 和 AC。
+
+      ### 5. 每个模块的详情
+
+      逐模块展开：
+      - 模块 ID 和名称
+      - 职责范围（做什么、不做什么）
+      - 上游依赖（模块 ID 列表 + 依赖理由）
+      - 下游被依赖（哪些模块依赖本模块）
+      - 关键产出物（DDL/API/页面/组件/测试）
+      - 对应架构组件（来自 final_architecture）
+      - 涉及数据表（来自 data_model）
+      - 覆盖的 CR / AC
+      - 实现注意事项（架构约束、技术难点、已知风险）
+
+      ## 约束
+
+      - 模块 ID 格式统一为 `Mxx`（两位数字），新建模块从既有最大编号+1 开始
+      - 如有同 lineage 历史 module_breakdown，标注哪些模块是新增、哪些是修订（复用已有 ID）
+      - 不输出代码实现、不写具体开发排期（那是 spec-dev 的事）
+      - 不做架构决策（那是 system-architecture 的事，本节点只做拆解）
+      - **禁止在产物正文输出 YAML frontmatter 或 lineage/artifact_id 标识**——frontmatter 由命令层
+        attach 维护。中间产物（module_breakdown_draft）不带 frontmatter、不进 lineage。
+    agent: claude
+    input:
+      - final_architecture
+      - data_model
+      - final_requirement
+      - project_context
+    output: module_breakdown_draft
+    skills:
+      - decompose
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  coverage_gate:
+    instruction: |
+      Module Coverage Check：确定性脚本节点（provider: command），非 LLM 判断。
+
+      对 module_breakdown_draft 做机械完整性硬门，卡住"漏 CR / 漏表 / 悬空引用"这类
+      最易人肉核对失误的问题，让人审只需聚焦语义判断（依赖合理性、波次写冲突、架构落点）。
+
+      ## 两道门（连接键为 CR 编号与表名，机器稳定标识符）
+
+      - 门1 CR 覆盖：final_requirement 的 `coverage canonical` 块全部 CR，
+        必须都出现在某模块的 `covers_cr` 中。
+      - 门2 表覆盖：data_model 的 `coverage table` 块全部表，必须都被某模块的
+        `covers_table` 负责。data_model 未声明表则门2 自动跳过（脚本按输入自适应）。
+      - 门3 悬空引用：模块引用了不存在的 CR/表 → 阻断。
+
+      存在未覆盖 CR/表或悬空引用则退出码 1，工作流失败。
+      本节点不经 LLM 判断覆盖率（会与拆解侧盲点重合造成虚假通过）。
+    agent: coverage_gate
+    input:
+      - module_breakdown_draft
+      - final_requirement
+      - data_model
+    output: coverage_report
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+  mapping_check:
+    instruction: |
+      人工审查 module_breakdown_draft 的完整性和正确性。这是本工作流唯一的 Human Gate。
+
+      CR/表的机械覆盖已由上游 coverage_gate 确定性脚本兜住（见 coverage_report），
+      本节点只审脚本管不了的语义判断，不重复核对覆盖计数。
+
+      ## 审查维度
+
+      呈现以下内容供人审查：
+
+      1. **架构落点对应**：每个模块是否正确对应 final_architecture 中的组件？
+         存在"悬空模块"（无架构组件对应）或"遗漏组件"（无模块承接）？
+      2. **依赖 DAG 合理性**：依赖关系是否与架构的数据流/调用链一致？是否存在循环依赖？
+      3. **并行波次正确性**：同波模块是否真的无相互依赖、无共享写冲突？
+      4. **模块边界合理性**：模块划分是否内聚、职责是否清晰、粒度是否适合并行开发？
+      5. **coverage_report 复核**：脚本已判 CR/表全覆盖，人工确认覆盖映射是否语义正确
+         （模块声称覆盖某 CR，是否真的承接了该 CR 的职责，而非仅编号挂靠）。
+
+      ## 决策（二元 gate，对齐 requirement-understanding 范式）
+
+      本节点是 Human Gate，执行完成后由 Runner 暂停，等待外部通过 continue 命令注入决策：
+      - **approve**：进入 finalize 锁定。若审查发现需修订的问题，把具体修订意见写进
+        人工裁决文件（见下），finalize 会读取并应用后再锁定——不再有独立 revise/refine 回流。
+      - **reject**：进入 failed 终止。
+
+      ## 产物 mapping_review 必须包含
+
+      1. 五个审查维度的逐条结论（通过/存在问题）
+      2. 若有问题：每条具体到「模块 ID + 问题描述 + 建议修复方向」
+      3. **人工裁决文件模板**（供人填写后经 continue --input 注入）：
+         - 审查结论：approve / reject
+         - 若 approve 但需修订：逐条列出"模块 ID → 修订指令"，供 finalize 应用
+
+      ## 约束
+
+      - 人审的是拆解的语义质量（架构落点/依赖/波次/边界），不是架构决策（那是 Architecture Command 的事）
+      - CR/表机械覆盖已由 coverage_gate 兜住，不重复核对计数；如脚本已过但覆盖映射语义存疑，在裁决文件中列为修订项
+      - 不新增模块、不自行补充覆盖——修订指令交 finalize 应用
+      - **禁止在产物正文输出 YAML frontmatter 或 lineage/artifact_id 标识**，frontmatter 由命令层 attach 维护
+    agent: claude
+    input:
+      - module_breakdown_draft
+      - coverage_report
+      - final_architecture
+      - data_model
+      - final_requirement
+      - project_context
+    output: mapping_review
+    skills:
+      - mapping-check
+    allowed_decisions:
+      - approve
+      - reject
+      - fail
+      - blocked
+
+  finalize:
+    instruction: |
+      应用人工裁决意见并锁定模块定义，产出最终的 module_breakdown。
+
+      这是确定性投影节点——Apply 人工裁决（human_clarification）中的修订指令 + 锁定，
+      不做新的拆解或架构判断。
+
+      ## 应用人工裁决（对齐 requirement-understanding 的 canonicalize）
+
+      - 读取经 continue --input 注入的人工裁决文件（human_clarification）：
+        逐条应用其中"模块 ID → 修订指令"到 module_breakdown_draft。
+      - 裁决文件缺失或无修订项时，直接锁定 draft 原样。
+      - 只应用裁决明确列出的修订，不自行发挥、不新增未经审查的模块。
+
+      ## 产物 module_breakdown 必须包含
+
+      1. **锁定声明**：版本号、锁定时间、审查结论摘要
+      2. **模块清单总表**（与 decompose 同格式，逐模块标注状态：新增/修订/复用）
+      3. **依赖 DAG**（锁定版）
+      4. **并行波次**（锁定版，含波次执行顺序和准入条件）
+      5. **四列追溯定位表**（锁定版——这是"架构一变就知道哪些模块要改"的核心资产）
+      6. **关键路径**：从 W1 到最终交付的最长依赖链，标注咽喉模块
+      7. **模块间契约草案**：模块间 API/接口/数据格式的初步约定（供 spec-dev 消费）
+      8. **审计追踪**：本次拆解对应的 run_id、上游 final_architecture/data_model 的 artifact_id
+
+      ## 模块 ID 格式约定
+
+      - 模块 ID = `Mxx[-a/b]`，如 `M01`, `M04a`, `M04b`
+      - 模块文档文件名 = `Mxx[-a/b]-<kebab-case-name>.md`
+      - 模块文档头部 HTML 注释格式（与 evolution lineage 体系一致）：
+        ```html
+        <!-- lineage: id: Mxx, status: accepted, depends: Mxx(a),Mxx(b) -->
+        ```
+
+      ## 约束
+
+      - 本节点只应用裁决 + 锁定，不做新拆解、不做架构决策
+      - 模块 ID 一旦锁定，后续 evolution 通过 supersedes/splits-into/merges-from 追踪变更
+      - 产物不含实现进度标记（勾选/🟡/🟠）
+      - **禁止在产物正文输出 YAML frontmatter 或 lineage/artifact_id 标识**——frontmatter 由命令层
+        attach 维护（对 module_breakdown 盖 lineage_id + artifact_id）。上方第 8 项"审计追踪"指的是
+        正文里引用上游 artifact_id 作追溯说明，不是写 frontmatter。
+    agent: claude
+    input:
+      - module_breakdown_draft
+      - mapping_review
+      - human_clarification
+      - final_architecture
+      - data_model
+      - final_requirement
+      - project_context
+    output: module_breakdown
+    skills:
+      - finalize
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+
+states:
+  decompose:
+    task: decompose
+    on:
+      done: coverage_gate
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "从架构+数据模型拆解模块清单、依赖DAG、并行波次和四列追溯定位表"
+
+  coverage_gate:
+    task: coverage_gate
+    on:
+      done: mapping_check
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "确定性脚本门——卡 CR/表覆盖完整性与悬空引用，未过即失败"
+
+  mapping_check:
+    task: mapping_check
+    on:
+      approve: finalize
+      reject: failed
+      fail: failed
+      blocked: failed
+    default: failed
+    gate: true
+    description: "Human Gate（二元 approve/reject）——审查架构落点/依赖/波次等语义维度；修订意见由人工裁决文件经 continue --input 注入，finalize 应用"
+
+  finalize:
+    task: finalize
+    on:
+      done: done
+      fail: failed
+      blocked: failed
+    default: failed
+    description: "应用人工裁决意见 + 锁定模块定义，产出可被 spec-dev 消费的 module_breakdown"
+
+  done:
+    task: ""
+    terminal: true
+    description: "工作流成功完成"
+
+  failed:
+    task: ""
+    terminal: true
+    description: "工作流失败终止"
+
+  cancelled:
+    task: ""
+    terminal: true
+    description: "工作流被取消"

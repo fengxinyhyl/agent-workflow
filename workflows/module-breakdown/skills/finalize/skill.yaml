@@ -1,0 +1,42 @@
+skill:
+  name: finalize
+  version: "1"
+  description: "模块拆分锁定节点规范——确定性投影，锁定最终模块定义"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "新增拆解或修订（那是 decompose/refine 的事）"
+      - "修改模块 ID（ID 一旦锁定不可变）"
+      - "保留实现进度标记"
+  content: |
+    # Finalize Node
+
+    锁定模块定义，产出最终 module_breakdown。只 Apply 人审结果，不做新拆解或判断。
+
+    ## 必须包含
+
+    - 锁定声明（版本号、锁定时间、审查结论摘要）
+    - 模块清单总表（标注新增/修订/复用）
+    - 依赖 DAG（锁定版）
+    - 并行波次（锁定版，含准入条件）
+    - 四列追溯定位表（锁定版）
+    - 关键路径（最长依赖链，标注咽喉模块）
+    - 模块间契约草案（API/接口/数据格式约定）
+    - 审计追踪（run_id、上游 artifact_id）
+
+    ## 模块 ID 格式约定
+
+    - 模块文档文件名 = `Mxx[-a/b]-<kebab-case-name>.md`
+    - 模块文档头部 HTML 注释：
+      ```html
+      <!-- lineage: id: Mxx, status: accepted, depends: Mxx(a),Mxx(b) -->
+      ```
+
+    ## 判断标准
+
+    - `done`: 模块定义锁定完成，产物可被 spec-dev 消费。
+    - `blocked`: 审查未通过或上游产物缺失。
+    - `fail`: 锁定过程失败。

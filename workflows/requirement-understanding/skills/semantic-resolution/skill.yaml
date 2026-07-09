@@ -1,0 +1,39 @@
+skill:
+  name: semantic-resolution
+  version: "1"
+  description: "Layer2 Semantic Resolution 独立提议节点规范"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "直接产出 canonical 结果（那是 Layer3 的确定性 Apply）"
+      - "读取其他模型的 Resolution 提议"
+      - "输出技术路线、架构建议或实现计划"
+      - "把假设写成已确认事实"
+  content: |
+    # Semantic Resolution Node（Layer2，独立提议）
+
+    基于 `baseline_requirement_set` **提议**语义等价关系，不做需求理解摘要、不出 canonical 结果。
+    这是语义层：所有"哪些是同一对象/可合并/派生"的判断收敛在此，Layer3 只机械 Apply。
+
+    ## 提议四类关系
+
+    - `equivalent`：术语同义 / 指向同一对象的不同表述
+    - `merge`：多条 baseline 规则片段可合并为一条 canonical 规则（页A+页B+接口 → BR-17）
+    - `rename`：源 token 归一到规范名（主小区 → Master Community）
+    - `derived-from`：PRD 未逐字出现、由已有条目推导出的隐含规则（派生非等价）
+
+    ## 硬约束
+
+    - 不读其他模型的提议——保持独立，分歧将作 Fidelity 高风险点标红。
+    - 每条提议必须附 Evidence：`Source: <baseline ids> → <目标 canonical id>`。
+    - derived-from 必须显式标注——它在 Coverage 分母外，只有 Human Gate 能判其成立。
+    - 只提议关系，不改写 baseline、不分配最终编号、不投影 canonical 文档。
+
+    ## 判断标准
+
+    - `done`: Resolution 提议完整，每条附 Evidence。
+    - `blocked`: baseline 缺失或不可解析。
+    - `fail`: 与安全边界冲突。

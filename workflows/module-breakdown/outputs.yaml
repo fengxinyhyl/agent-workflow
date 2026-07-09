@@ -1,0 +1,25 @@
+outputs:
+  module_breakdown_draft:
+    type: markdown
+    description: "模块拆解草稿——模块清单、依赖DAG、并行波次和四列追溯定位表"
+    produced_by:
+      - decompose
+      - refine
+
+  mapping_review:
+    type: markdown
+    description: "Human Gate 审查意见——架构落点、依赖合理性、波次正确性等语义维度"
+    produced_by:
+      - mapping_check
+
+  coverage_report:
+    type: markdown
+    description: "确定性门报告——CR/表覆盖完整性与悬空引用检查；存在未覆盖项或悬空引用则退出码 1"
+    produced_by:
+      - coverage_gate
+
+  module_breakdown:
+    type: markdown
+    description: "锁定版模块定义——模块清单、依赖DAG、并行波次、四列追溯定位表、关键路径、模块间契约草案和审计追踪"
+    produced_by:
+      - finalize

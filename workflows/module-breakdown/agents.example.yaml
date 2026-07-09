@@ -1,0 +1,45 @@
+# Agent 配置模板（纳入版本库，命令使用通用默认 claude/codex，开箱即用）。
+#
+# 引擎实际加载的是同目录的 agents.yaml（已被 .gitignore 忽略、不入库）。
+# 首次使用：复制本文件为 agents.yaml，按需把 command 改成个人 wrapper（如 cc-opus/cc-deepseek）：
+#     cp agents.example.yaml agents.yaml
+# 若不复制，请确保存在 agents.yaml，否则引擎读不到 agent 配置。
+
+agents:
+  claude:
+    provider: claude
+    command: "claude"
+    cwd: "{project_root}"
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write,Edit"
+    timeout_seconds: 3600
+    description: "Claude Opus — 模块拆解、审查 gate、修订和锁定"
+
+  deepseek:
+    provider: claude
+    command: "claude"
+    cwd: "{project_root}"
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write,Edit"
+    timeout_seconds: 3600
+    description: "DeepSeek — 备用模型"
+
+  codex:
+    provider: codex
+    command: "codex"
+    cwd: "{project_root}"
+    sandbox: workspace-write
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write,Edit"
+    timeout_seconds: 3600
+    description: "Codex — 结构化分析和交叉检查"
+
+  # Module Coverage Check 脚本节点（确定性门，非 LLM）。
+  # exit_code==0 -> done，非 0 -> fail（未覆盖 CR/表或悬空引用即失败）。
+  coverage_gate:
+    provider: command
+    enabled: true
+    command: "python {project_root}/workflows/module-breakdown/command/mapping_check.py {run_root}"
+    cwd: "{project_root}"
+    timeout_seconds: 300
+    description: "Module Coverage Check — 确定性脚本门，卡 CR/表覆盖与悬空引用"

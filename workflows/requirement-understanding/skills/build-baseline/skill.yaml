@@ -1,0 +1,52 @@
+skill:
+  name: build-baseline
+  version: "1"
+  description: "Layer1 Build Baseline 节点规范——best-effort 抽取需求条目全集"
+  policy:
+    allowed_decisions:
+      - done
+      - fail
+      - blocked
+    forbidden_actions:
+      - "做等价/合并/派生判断（那是 Layer2 语义层的事）"
+      - "读 v1.0 表结构 HTML 或对字段数做基数假设"
+      - "输出技术路线、架构建议或实现计划"
+      - "声称已抽全 PRD（baseline 是 best-effort，非 Ground Truth）"
+  content: |
+    # Build Baseline Node（Layer1）
+
+    产出 `baseline_requirement_set`：best-effort 抽取的需求条目全集。它是 Canonicalization
+    Recall 的**分母**，不是 Ground Truth——只保证下游 Layer3 不丢本层已发现的项，不声称抽全 PRD。
+
+    ## 异源（硬约束）
+
+    本节点是对 Canonicalization 的**独立见证**，必须与 Layer2 语义节点异源（独立视角、多 pass）。
+    与 Layer2 共享盲点会造成虚假 100%。
+
+    ## 抽取步骤
+
+    1. 用 Glob 在项目需求文档目录（如 goal 指定的路径，或项目约定的需求目录）
+       找到本次相关的需求文档，用 Read 逐一阅读。
+    2. 若需求无结构化字段源：需求实体散落在 PRD 的叙述章节中，必须逐条 LLM 抽取。
+       为降低盲区，对关键章节做多 pass 通读取并集。
+       若有结构化源（如独立的字段/表定义文件），可零解析直读当 baseline。
+    3. 覆盖粒度下沉：不仅抽实体/字段名，还要抽它的**每条最细约束**（默认值/校验/错误码/状态转移）。
+
+    ## 必须包含
+
+    - 供 coverage_check 机读的 fenced block（语言标 `coverage baseline`），每个 baseline 项一条：
+
+      ```coverage baseline
+      - id: R-1                    # 唯一 id，供 Resolution 与 canonical 追溯
+        token: 主小区               # 源词（可选），供 Resolution 连通重命名
+        assertions: [默认值, 校验规则]   # 该项的最细断言（可选，粒度下沉）
+      ```
+
+    - 正文：每个 baseline 项的人类可读说明
+    - 原始文档来源：列出实际 Read 的文档完整相对路径与关键内容概述
+
+    ## 判断标准
+
+    - `done`: baseline 抽取完成，机读块齐备，可进入 Layer2。
+    - `blocked`: 缺少关键需求文档，无法抽取。
+    - `fail`: 需求不可处理或与安全边界冲突。
