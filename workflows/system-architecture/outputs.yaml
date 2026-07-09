@@ -40,3 +40,21 @@ outputs:
     description: "Architecture Freeze + ADR，包含最终架构、追踪矩阵、评分摘要和 ADR 记录"
     produced_by:
       - architecture_freeze
+
+  verdict_consistency_report:
+    type: markdown
+    description: "Verdict 一致性确定性门报告：核对 freeze restatement 忠实回指 eval verdict；极性翻转/漏回指则退出码 1 工作流失败"
+    produced_by:
+      - verdict_consistency_check
+
+  data_model:
+    type: markdown
+    description: "确定性数据模型 DDL——实体关系图、新表 DDL、变更表 migration、索引设计和数据迁移说明"
+    produced_by:
+      - data_model
+
+  ddl_conflict_report:
+    type: markdown
+    description: "DDL 冲突确定性门报告：新建表名撞库/migration 编号撞号检测；存在冲突则退出码 1 工作流失败"
+    produced_by:
+      - ddl_conflict_check

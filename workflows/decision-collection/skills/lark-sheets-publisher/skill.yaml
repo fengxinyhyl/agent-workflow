@@ -1,7 +1,7 @@
 skill:
   name: lark-sheets-publisher
-  version: "1"
-  description: "发布裁决批次到飞书电子表格的规则"
+  version: "2"
+  description: "发布裁决批次到飞书电子表格的规则：索引页追加行 + 新建明细子表"
   policy:
     allowed_decisions:
       - done
@@ -13,27 +13,86 @@ skill:
     forbidden_actions:
       - "在未提供电子表格时自行创建新的 spreadsheet"
       - "把原始 Markdown 链接写入裁决明细子表字段"
+      - "覆盖或删除索引页中已存在的历史批次行"
       - "绕过 lark-cli 高风险写操作确认门禁"
       - "读取或输出 .env、密钥、数据库凭证"
   content: |
     # Lark Sheets Publisher
 
-    发布节点负责真实飞书电子表格写入。
+    发布节点负责真实飞书电子表格写入。目标电子表格由 input_inventory 给出，
+    禁止自建新的 spreadsheet。
 
-    明细子表字段必须严格只有:
-    `裁决项ID`、`待裁决问题`、`候选方案`、`最终结论`、`状态`。
+    ## 电子表格结构约定
 
-    发布产物:
-    - 本 run 的裁决明细子表（在用户提供的电子表格中新建 tab）。
-    - 电子表格内的 `裁决批次索引` 子表记录。
-    - 原始 `.md` 文件上传后的材料链接。
-    - `lark_sheets_publish_packet`，包含子表链接、材料链接和继续说明。
+    ### 第 1 页：裁决批次索引（固定 6 列）
 
-    工具约束:
-    - 电子表格读取使用 `lark-cli sheets +workbook-info`。
+    表头固定为：
+    `run_id/topic | 明细子表链接 | 状态 | 输入文件清单 | 原始材料链接 | 本地产物路径`
+
+    - 本 run 作为**新的一行追加**到索引页，禁止覆盖或删除已存在的历史批次行
+      （例如既有的 `260625_data-field-decision` 行必须原样保留）。
+    - `run_id/topic`: 本 run 的 run_id 或 topic。
+    - `明细子表链接`: 本 run 新建明细子表的链接（形如
+      `<表格URL>?sheet=<sheetId>`）。
+    - `状态`: 批次整体状态，初始 `待裁决`。
+    - `输入文件清单`: 本次指定的源 Markdown 相对路径（多个用逗号或换行分隔）。
+    - `原始材料链接`: 原始 .md 上传飞书云空间后返回的 url。
+    - `本地产物路径`: 本 run 的 staging 产物相对路径。
+
+    ### 本 run 明细子表（新建 tab，5 列）
+
+    - 命名格式 `<run_id>_裁决明细`，在目标电子表格中**新建**。
+    - 只写入 5 列：`裁决项ID | 待裁决问题 | 候选方案 | 最终结论 | 状态`。
+    - 单元格允许长富文本；忠实写入 reviewed_decision_items 的整段内容，
+      不得为适配单元格而删减 PRD 原文/分歧点/建议倾向。
+    - `最终结论` 留空，`状态` 为 `待裁决`，交人工填写。
+
+    ## 原始材料上传
+
+    - 把本次指定的原始 .md 文件**直接上传**到 input_inventory 给出的飞书云空间
+      材料目录。
+    - 上传后返回的 url 写入索引页“原始材料链接”列，不写入明细子表字段。
+
+    ## 工具约束
+
+    - 电子表格读取使用 `lark-cli sheets +workbook-info`（先读现有子表与索引行，
+      避免覆盖）。
     - 子表创建使用 `lark-cli sheets +sheet-create`。
-    - 数据写入使用 `lark-cli sheets +csv-put`（纯值批量写入，最快）。
+    - 数据写入使用 `lark-cli sheets +csv-put`（纯值批量写入，表头 + 数据行）。
     - 读取校验使用 `lark-cli sheets +csv-get`。
-    - 原生 Markdown 上传使用 `lark-cli markdown +create`。
-    - 如果缺少权限或授权，输出 `blocked`，不要循环重试。
-    - 高风险写操作必须通过 lark-cli 确认门禁（`--dry-run` 预览 → 确认后加 `--yes`）。
+    - 原始 .md 上传使用 `lark-cli markdown +create`（或 docs/drive 对应上传命令），
+      记录返回 url。
+    - 缺少权限或授权时输出 `blocked`，不要循环重试。
+
+    ## 身份策略（必须遵守）
+
+    - 所有 lark-cli 命令统一显式带 `--as bot`。本项目机器人身份持有
+      `sheets:spreadsheet` 读写权限，可完成 workbook-info / sheet-create /
+      csv-put / csv-get / markdown +create 全流程。
+    - 禁止使用 `--as user`：user 身份未完成 OAuth 授权（缺 `sheets:spreadsheet:read`），
+      会直接 `need_user_authorization` 阻断。不要因为历史 packet 里出现过
+      `--as user` 示例就沿用。
+    - 探测阶段若默认身份（不带 `--as`）遭遇 `network.transport` / socket 拦截，
+      属本机网络抖动，可显式 `--as bot` 重试一次；仍失败才输出 `blocked`。
+
+    ## 命令门禁与参数注意
+
+    - 写操作确认：`+sheet-create` 无 `--yes` 参数，去掉 `--dry-run` 即真实执行；
+      `+csv-put` 同理，先 `--dry-run` 预览、确认后去掉 `--dry-run` 执行。不要臆造
+      `--yes` 传给不支持它的子命令。
+    - `--csv @file` 与 `markdown +create --file` 只接受**当前目录内的相对路径**，
+      不接受盘符绝对路径（如 `F:\...`）。工作目录须在项目根，用
+      `docs/runs/.../xxx.csv` 形态传入。
+    - 富文本写入：先把 reviewed_decision_items 的 5 列表格转成 RFC-4180 CSV
+      落地到 staging（`<br>` 还原为换行，逗号/引号/换行交给 csv writer 转义），
+      再用 `+csv-put --csv @<相对路径>` 写入，避免超长富文本在命令行里被截断或转义错误。
+    - 索引页追加：先 `+csv-get` 读现有行，用返回的 `[row=N]` 前缀定位首个空行，
+      对该行 `--start-cell A<N>` 写入，禁止覆盖历史批次行。
+
+    ## 产物 lark_sheets_publish_packet 必须包含
+
+    - 目标电子表格 URL/token 摘要。
+    - 本 run 明细子表名称与链接。
+    - 索引页新增行的内容摘要（6 列）。
+    - 原始材料上传后的 url 列表。
+    - 人工填写说明与 continue 命令示例。

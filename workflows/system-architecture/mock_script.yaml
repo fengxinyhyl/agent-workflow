@@ -17,3 +17,9 @@ decision_script:
     - done
   architecture_freeze:
     - done
+  verdict_consistency_check:
+    - done
+  data_model:
+    - done
+  ddl_conflict_check:
+    - done

@@ -1,66 +1,78 @@
 outputs:
-  understanding_deepseek:
+  baseline_requirement_set:
     type: markdown
-    description: "DeepSeek 独立需求理解，不含方案建议"
+    description: "Layer1 Build Baseline：best-effort 抽取的需求条目全集（需求实体/规则片段/术语/约束/来源），Canonicalization Recall 的分母，非 Ground Truth"
     produced_by:
-      - understand_deepseek
+      - build_baseline
 
-  understanding_claude:
+  resolution_proposal_deepseek:
     type: markdown
-    description: "Claude 独立需求理解，不含方案建议"
+    description: "DeepSeek 独立提议的 Resolution（等价/合并/派生关系），非需求理解摘要"
     produced_by:
-      - understand_claude
+      - resolve_deepseek
 
-  understanding_codex:
+  resolution_proposal_claude:
     type: markdown
-    description: "Codex 独立需求理解，不含方案建议"
+    description: "Claude 独立提议的 Resolution，分歧作 Fidelity 风险探针"
     produced_by:
-      - understand_codex
+      - resolve_claude
+
+  resolution_proposal_codex:
+    type: markdown
+    description: "Codex 独立提议的 Resolution，分歧作 Fidelity 风险探针"
+    produced_by:
+      - resolve_codex
 
   review_claude:
     type: markdown
-    description: "Claude 对 DeepSeek 需求理解的交叉审查"
+    description: "Claude 对 DeepSeek 提议的异源盲区校验（服务 Baseline 独立见证）"
     produced_by:
       - review_by_claude
 
   review_codex:
     type: markdown
-    description: "Codex 对 Claude 需求理解的交叉审查"
+    description: "Codex 对 Claude 提议的异源盲区校验"
     produced_by:
       - review_by_codex
 
   review_deepseek:
     type: markdown
-    description: "DeepSeek 对 Codex 需求理解的交叉审查"
+    description: "DeepSeek 对 Codex 提议的异源盲区校验"
     produced_by:
       - review_by_deepseek
 
-  consensus_report:
+  resolution:
     type: markdown
-    description: "共识需求、分歧需求、缺失信息和共识度评分"
+    description: "Layer2 合并后的 Resolution（唯一核心资产，含等价/合并/派生，待 Human Gate 批准）；coverage_check 与 canonicalize 的共同输入"
     produced_by:
-      - combine_consensus
+      - combine_resolution
 
   clarification_questions:
     type: markdown
-    description: "面向用户的需求澄清问题"
+    description: "面向用户的需求澄清问题（由 Resolution 分歧与缺口生成）"
     produced_by:
       - generate_clarification_questions
 
   human_clarification_request:
     type: markdown
-    description: "人工澄清 gate 暂停前的裁决请求"
+    description: "Single Semantic Authority 暂停前的裁决请求：澄清问题 + Resolution 提议 + Merge/派生 Evidence"
     produced_by:
-      - human_clarification_gate
+      - human_semantic_gate
 
   human_clarification:
     type: markdown
-    description: "用户回答的澄清信息，由 continue --input 注入"
+    description: "用户回答的澄清信息 + 对 Resolution 提议的裁决，由 continue --input 注入"
     produced_by:
       - external_human
 
   final_requirement:
     type: markdown
-    description: "最终需求理解产物，可作为 PRD 或 spec-dev 输入"
+    description: "Layer3 Canonicalization：Apply(Resolution) 的确定性投影产物（Canonical Requirement View），含 coverage canonical 机读块（id/sources/anchor/assertions）与 coverage exclude 豁免块，剥离实现进度"
     produced_by:
-      - final_requirement_synthesis
+      - canonicalize
+
+  coverage_report:
+    type: markdown
+    description: "Layer4 Coverage Check 看板：baseline 项经 canonical.sources 追溯的覆盖报告（id 级 Recall）；未追溯项与断言未命中只标红供人工裁量、不阻断，仅产物/机读块缺失等硬错误退出码 1"
+    produced_by:
+      - coverage_check

@@ -14,6 +14,7 @@ skill:
       - "编写代码"
       - "只给笼统评价不输出评分矩阵"
       - "忽略 hard constraint violation"
+      - "省略末尾 `eval verdict` 机读块或漏记关键结论"
   content: |
     # Evaluation Gate Node
 
@@ -46,3 +47,38 @@ skill:
     - `reject`: 方案方向或输入根本不可接受。
     - `blocked`: 缺少评估所需关键输入。
     - `fail`: 评估过程失败或发现不可继续的安全边界冲突。
+
+    ## 必须输出机读裁决块（末尾，供 verdict_consistency_check 门与 architecture_freeze 回指）
+
+    在报告末尾嵌一个 fenced block（语言标 `eval verdict`），把**关键结论**结构化，
+    使下游 architecture_freeze 的转述可被确定性核对，杜绝"后节点改写/推翻前节点判定"的漂移。
+
+    **纳入范围（仅关键结论，非全量）**：
+    1. `constraint compliance` 总判定（id 用 `COMPLIANCE`）。
+    2. 每条有 violation / blocker / relaxation request 的 hard constraint。
+    3. 每条 eval 明确判过"已定 vs 待定 / pass vs fail / 已覆盖 vs 未覆盖"极性的关键结论
+       （如某需求项是否已在需求层定稿、某能力是否已完整覆盖）。
+
+    格式（每条一项，`verdict` 只能取下列极性槽之一）：
+
+    ```text
+    ```eval verdict
+    - id: COMPLIANCE
+      verdict: pass          # pass | fail
+      claim: 无 hard constraint 违反
+    - id: HC-5
+      verdict: defined       # defined | deferred（是否已在需求/架构定稿，未延后）
+      claim: 完整性校验 10 项内容 CR-24 已明确列出，非 OQ 待定
+    - id: F5-STRATEGY
+      verdict: covered       # covered | uncovered（能力是否完整覆盖）
+      claim: 治理策略只读页数据来源路径已明确
+    ```
+    ```
+
+    极性槽约定（`verdict` 字段取值域，门按此判极性一致）：
+    - `pass` / `fail`
+    - `defined` / `deferred`（已定稿 / 延后待定）
+    - `covered` / `uncovered`（已覆盖 / 未覆盖）
+    - `resolved` / `open`（已解决 / 未决）
+
+    每条 `id` 必须稳定可回指（HC 编号、能力标识等），architecture_freeze 将以同一 `id` 回指并转述。

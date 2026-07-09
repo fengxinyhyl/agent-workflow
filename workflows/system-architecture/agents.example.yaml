@@ -1,0 +1,56 @@
+# Agent 配置模板（纳入版本库，命令使用通用默认 claude/codex，开箱即用）。
+#
+# 引擎实际加载的是同目录的 agents.yaml（已被 .gitignore 忽略、不入库）。
+# 首次使用：复制本文件为 agents.yaml，按需把 command 改成个人 wrapper（如 cc-opus/cc-deepseek）：
+#     cp agents.example.yaml agents.yaml
+# 若不复制，请确保存在 agents.yaml，否则引擎读不到 agent 配置。
+
+agents:
+  claude:
+    provider: claude
+    command: "cc-opus"
+    cwd: "{project_root}"
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write,Edit"
+    timeout_seconds: 3600
+    description: "Claude Opus - 架构驱动因素提炼、架构草案、复杂修订和最终定稿"
+
+  deepseek:
+    provider: claude
+    command: "cc-deepseek"
+    cwd: "{project_root}"
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write,Edit"
+    timeout_seconds: 3600
+    description: "DeepSeek - 架构审查、遗漏识别和反向风险检查"
+
+  codex:
+    provider: codex
+    command: "codex"
+    cwd: "{project_root}"
+    sandbox: workspace-write
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write,Edit"
+    timeout_seconds: 3600
+    description: "Codex - 保留给需要本地验证的架构后续节点"
+
+  # 确定性脚本门（provider: command）：data_model 节点后检测 DDL 与真实 DB 基线冲突。
+  # exit_code==0 -> done，非 0 -> fail（表名撞库或 migration 编号撞号即失败）。
+  # 与 evaluation_gate 的 LLM 判断正交，补上"LLM 放过撞库/撞编号"的确定性防线。
+  ddl_conflict_check:
+    provider: command
+    enabled: true
+    command: "python {project_root}/workflows/system-architecture/command/ddl_conflict_check.py {run_root} {project_root}"
+    cwd: "{project_root}"
+    timeout_seconds: 300
+    description: "DDL Conflict Check — 确定性脚本门，检测表名撞库/migration 编号撞号"
+
+  # 确定性脚本门（provider: command）：architecture_freeze 节点后核对 freeze 转述忠实于 eval 判定。
+  # exit_code==0 -> done，非 0 -> fail（极性翻转或漏回指即失败）。
+  verdict_consistency_check:
+    provider: command
+    enabled: true
+    command: "python {project_root}/workflows/system-architecture/command/verdict_consistency_check.py {run_root}"
+    cwd: "{project_root}"
+    timeout_seconds: 300
+    description: "Verdict Consistency Check — 确定性脚本门，堵节点间 verdict 漂移"

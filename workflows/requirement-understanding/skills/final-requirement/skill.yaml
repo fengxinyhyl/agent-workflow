@@ -1,44 +1,63 @@
 skill:
   name: final-requirement
-  version: "1"
-  description: "最终需求理解产物节点规范"
+  version: "2"
+  description: "Layer3 Canonicalization 节点规范——Apply(Resolution) 投影 Canonical Requirement"
   policy:
     allowed_decisions:
       - done
       - fail
       - blocked
     forbidden_actions:
-      - "替用户裁决未确认分歧"
+      - "在此引入新的语义判断（新的等价/合并/派生）——那必须回 Layer2"
+      - "替用户裁决未确认的 Resolution 关系"
       - "输出技术路线、架构建议或实现计划"
-      - "把最终需求写成 implementation plan"
+      - "保留实现进度标记（勾选/🟡/🟠/待 Mxx）"
   content: |
-    # Final Requirement Node
+    # Canonicalize Node（Layer3，确定性）
 
-    本节点形成最终需求理解产物，可作为 PRD 或后续 spec-dev 输入。
+    拿【已被 Human Gate 批准的】`resolution` 对 `baseline_requirement_set` 做 `Apply(Resolution)`，
+    投影出 Canonical Requirement。这是机械层——**只 Apply 不 Reason**：rename/dedupe/reference/
+    分配新编号，没有自由度。发现遗漏关系应回 Layer2，不在此私自决定。
+
+    Canonical Requirement 是 View 不是终点：SoT 是 baseline + resolution，本产物是二者的确定性投影。
 
     ## 必须包含
 
-    - Final Requirement Summary
-    - 用户目标和业务目标
-    - 目标用户/角色
-    - 场景、流程和规则
-    - 功能需求清单
-    - 非目标和范围边界
-    - 验收标准
-    - 已确认共识
-    - 未确认分歧
-    - 待用户回答的问题
-    - 可交给后续 PRD / spec-dev 的需求输入摘要
-    - 原始文档来源：从三份独立理解和 consensus_report 中汇总所有被引用的原始文档。
-      必须使用以下格式，列出每份文档的完整相对路径、文档类型和关键内容：
+    - 供 coverage_check 机读的 fenced block（语言标 `coverage canonical`），每个 canonical 项一条：
 
-      ```markdown
-      ## 原始文档来源
-
-      | 文档路径 | 文档类型 | 关键内容 |
-      |----------|----------|----------|
-      | docs/requirement/v1.0/需求-01 数据接入管理V1.0.md | 产品需求文档 | 页面结构、字段定义、业务规则、数据口径 |
+      ```coverage canonical
+      - id: CANON-01                       # 机器稳定标识符（程序生成，CANON-*/CR-* 前缀），本条 canonical 项的唯一 id
+        sources: [R-1, R-12]               # 【必需，连接键】本项投影自哪些 baseline id，coverage_check 靠它验证 Recall
+        anchor: SEM-PROP-MC-LIFECYCLE      # 【可选】语义标签，仅供人类阅读，不作连接键、可随时改写
+        assertions:                        # 多行块列表；保留 baseline 下沉的约束，但措辞可合并/改写
+          - 第一条约束
+          - 第二条约束
       ```
 
-      此章节是后续 system-architecture 工作流读取原始文档的唯一入口，
-      路径必须准确可访问。
+      **连接键契约（关键）**：coverage_check 只认 `sources` 回指的 baseline id 做追溯——`sources`
+      是必需字段，缺了该项对应的 baseline R 会被判「未追溯」而阻断。id 用机器稳定标识符（CANON-*/CR-*），
+      `anchor` 只是语义标签、不参与追溯。**不要指望用 anchor 或 id 命名去对齐 resolution——那条路已废弃。**
+
+      **assertions 是抽查线索，非逐字契约**：canonicalize 是合并投影，措辞会改写/合并，coverage_check
+      对 assertions 只做警告级比对（不阻断）。不要为「逐字保留 baseline 断言」而牺牲合并质量。
+
+    - 用户目标和业务目标
+    - 目标用户/角色
+    - 场景、流程和规则（按机器消费组织：实体 / 规则 / 约束 / AC / 术语 / 开放决策）
+    - 功能需求清单（Canonical 实体与规则，含 ID）
+    - 非目标和范围边界
+    - 验收标准
+    - 已确认关系 / 未确认分歧 / 待用户回答的问题
+    - Evidence Index：每个 canonical 项回指 baseline 源项与 Resolution 关系（sources 指针），
+      指回原始文档路径。这是下游 system-architecture 追溯的入口。
+
+    ## 禁止
+
+    - 实现进度标记（勾选 / 🟡 / 🟠 / 「待 Mxx」）——进度归 00-implementation-status.md，
+      SoT 只讲"系统该怎样"，不讲"做到哪了"。
+
+    ## 判断标准
+
+    - `done`: canonical 投影完成，机读块与 Evidence Index 齐备。
+    - `blocked`: resolution 未批准或 baseline 缺失。
+    - `fail`: 与安全边界冲突。

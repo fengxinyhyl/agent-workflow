@@ -21,6 +21,12 @@ skill:
     读取方式:
     - 使用 `lark-cli sheets +csv-get` 读取裁决明细子表。
     - 使用 `lark-cli sheets +workbook-info` 确认子表存在。
+    - **所有 lark-cli 命令统一显式带 `--as bot`**。本项目 user 身份未完成 OAuth
+      授权（缺 `sheets:spreadsheet:read`），用 `--as user` 会直接
+      `need_user_authorization` 而 blocked；bot 身份持读写权限可正常回读。
+      不要因历史 packet 出现过 `--as user` 就沿用。详见发布节点身份策略。
+    - `csv-get` 读回后用返回的 `[row=N]` 前缀定位行号，不要自己数行；子表链接与
+      sheet_id 从 lark_sheets_publish_packet 获取（本批次 sheet_id 记录在发布包内）。
 
     校验规则:
     - 表字段仍然必须是 5 字段（从 CSV 表头校验）。

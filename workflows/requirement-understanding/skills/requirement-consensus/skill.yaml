@@ -1,28 +1,49 @@
 skill:
   name: requirement-consensus
-  version: "1"
-  description: "需求理解共识合并节点规范"
+  version: "2"
+  description: "Layer2 合并 Resolution 提议节点规范"
   policy:
     allowed_decisions:
       - done
       - fail
       - blocked
     forbidden_actions:
-      - "把共识度评分当成最终通过依据"
-      - "用多数票覆盖用户未确认的分歧"
+      - "把 consensus_score 当成最终通过依据"
+      - "用多数票覆盖用户未确认的分歧关系"
+      - "自行批准 Resolution（批准权在 Human Gate）"
       - "输出技术路线、架构建议或实现计划"
   content: |
-    # Requirement Consensus Node
+    # Combine Resolution Node（Layer2）
 
-    本节点合并多份需求理解和审查结果，产出共识、分歧、缺失信息和共识度评分。
+    读取三份 Resolution 提议 + 三份异源盲区校验，合并成一份**待批准的 Resolution**。
+    这是 Layer2 唯一核心资产，coverage_check（Layer4）与 canonicalize（Layer3）都以它为唯一输入。
+
+    合并 = 汇总提议 + 标注分歧，**不是投票定论**。consensus_score 已降级为中间指标；
+    通过依据是 Coverage 无未追溯项 + Human Gate 批准。
 
     ## 必须包含
 
-    - Consensus Requirements
-    - Divergent Requirements
-    - Missing Information
-    - Contamination Check
-    - Consensus Score
-    - Human Decision Needed
+    - 供机读的 fenced block（语言标 `coverage resolution`），每条关系一项：
 
-    共识度只是中间指标，不是最终目标。
+      ```coverage resolution
+      - type: merge            # equivalent | merge | rename | derived-from
+        from: [R-a, R-b]       # 【核心】源 baseline id 集合——表达"哪些 baseline 项属同一语义/可合并"
+        to: SEM-PROP-XXX       # 【可选，仅语义标签】给这组关系起的语义锚点名，不作连接键、不需等于任何 canonical id
+      ```
+
+      **契约（关键）**：resolution 只负责表达"哪些 baseline 项合并/等价/派生"（靠 `from`），
+      **不负责创造 canonical 的连接键**。coverage_check 的连接键是 canonicalize 产物里的 `sources`
+      字段（canonical 项回指 baseline id），不是这里的 `to`。因此 `to` 可以是任意语义标签，
+      **不要求也不应该**指向某个 canonical id——canonical id 由 Layer3 独立分配（见 final-requirement）。
+
+    - Agreed Relations：三方一致或高度一致的关系
+    - Divergent Relations：三方提议不一致的关系（Fidelity 高风险，标红）
+    - Derived Relations：derived-from 派生关系（Coverage 分母外，单独列出待人审签字）
+    - Merge Evidence：每条合并/归一/派生附 `Source: <baseline ids> → <canonical id>`
+    - Human Decision Needed：必须由用户裁决的关系
+
+    ## 判断标准
+
+    - `done`: Resolution 合并完成，机读块齐备，分歧已标红。
+    - `blocked`: 提议缺失或冲突到无法合并。
+    - `fail`: 与安全边界冲突。

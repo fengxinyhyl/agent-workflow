@@ -1,7 +1,7 @@
 skill:
   name: human-clarification-gate
-  version: "2"
-  description: "人工澄清等待节点规范——将 clarification_questions 转换为面向用户的裁决请求"
+  version: "4"
+  description: "Single Semantic Authority 节点规范——回答澄清 + 批准 Resolution 提议"
   policy:
     allowed_decisions:
       - done
@@ -9,57 +9,63 @@ skill:
       - blocked
     forbidden_actions:
       - "替用户回答澄清问题"
+      - "替用户批准或否决 Resolution 提议"
       - "输出技术路线、架构建议或实现计划"
       - "绕过人工裁决直接继续"
-      - "从 consensus_report 或其他产物中挖掘 clarification_questions 未包含的新问题"
+      - "从其他产物中挖掘 clarification_questions 未包含的新问题"
       - "丢弃或跳过 clarification_questions 中的任何问题"
-      - "自行修改 clarification_questions 中的问题编号、优先级分类或措辞"
+      - "自行修改问题编号、优先级分类或问题实质"
+      - "在面向用户的裁决请求正文主句里直接用 equivalent/merge/rename/derived-from/canonical/Coverage/SEM-PROP-* 等引擎术语作为唯一表述（可在括号里附注原始术语，但主句必须是业务语言）"
+      - "只甩裸条目编号（R-xx/DR-xx 等）而不展开其业务原文内容"
   content: |
-    # Human Clarification Gate Node
+    # Human Semantic Gate Node（Single Semantic Authority）
 
-    本节点是**纯格式转换节点**，不执行新的需求分析。它把 `clarification_questions` 中已经确定的问题列表转成面向用户的裁决请求文档，Runner 执行完成后暂停。
+    本工作流**唯一的人类语义裁决点**。所有确定性步骤（Layer3/Layer4）只消费这里批准的结果，
+    不得自行产生新的语义判断。本节点执行完成后由 Runner 暂停，等待 continue 注入 human_clarification。
 
-    ## 输入
+    产物的读者是懂业务、不懂引擎内部机制的人。呈现必须**业务可读**：说人话、摊开原文、禁堆黑话。
 
-    - `clarification_questions`：唯一的问题来源
-    - `consensus_report`：仅用于补充每个问题的背景上下文，**不从中提取新问题**
+    ## 呈现两件事等待用户
 
-    ## 核心约束
+    ### (a) 澄清问题（源自 clarification_questions）
 
-    ### 1. 问题来源单一
+    - `clarification_questions` 是问题的**唯一权威来源**：不新增、不丢弃、不重分类、不改编号、不改问题实质。
+    - 保留原始编号（BQ-x / IQ-x / OQ-x）与优先级，回答模板按 BQ/IQ/OQ 排列。
+    - 不从 resolution 或其他产物中挖掘未包含的新问题。
 
-    `clarification_questions` 是问题的**唯一权威来源**。本节点不得：
-    - 从 `consensus_report` 中提取新的问题或分歧项
-    - 重新阅读原始需求文档发现"遗漏"的问题
-    - 将 Important Questions 自行升级为 Blocking 或降级为 Optional
+    ### (b) Resolution 提议批准（源自 resolution）
 
-    ### 2. 问题完整性
+    - 呈现被提议合并/归一/派生的条目，配合并证据，请用户审批"这些条目该不该并、这条推理成不成立"。
+    - **派生（PRD 没写、AI 推理出来的隐含规则）必须逐条列出请用户单独签字**——只有人能判成立与否。
+    - 人审的是 Resolution 提议 + 证据，**不是**逐条审 baseline 全集，**不是**审整份 Requirement。
 
-    `clarification_questions` 中的所有问题必须**原封不动**出现在请求文档中：
-    - 保留原始编号（BQ-x / IQ-x / OQ-x）
-    - 保留原始优先级（Blocking / Important / Optional）
-    - 保留原始措辞，不自行改写
-    - 不丢弃任何问题
+    ## 业务化翻译呈现（强制）
 
-    ### 3. 可选的展示重组
+    若上游 clarification_questions 或 resolution 带有引擎术语或裸条目编号，本节点在
+    「可选的展示重组」范围内**必须**把它们翻译成业务语言、并展开条目原文后再呈现：
 
-    在保持编号和优先级不变的前提下，允许以下展示优化：
-    - 将属于"三方模型理解分歧"的 Important Questions（如 IQ-2, IQ-3, IQ-4 等）在展示时附上"分歧裁决"标签，帮助用户理解这些问题的裁决性质
-    - 在每个问题后追加"关联共识报告发现"的简短上下文（不超过 2 句）
-    - 在文档末尾附上统一的回答模板
+    - 把 equivalent/merge/derived-from/rename/canonical/Coverage 等术语译成业务问法
+      （重复说同一件事 / 同主题不同部分该不该组装 / AI 推理的隐含规则成不成立 / 术语统一改名 等），
+      原始术语可在括号里附注。
+    - 把 R-xx / DR-xx 裸编号展开为其 assertions 的业务原文，编号仅保留作定位锚点。
+    - **翻译呈现 ≠ 改动问题实质**：编号、优先级、问题本身要问什么，一律不动；
+      改的只是"用什么语言把它讲给业务人听"。
 
-    但以上仅为展示辅助，问题的编号/优先级/措辞不得改动。
+    ## 产物开头必须包含
+
+    - 一张「术语 → 大白话」对照小表（覆盖本次出现的所有引擎术语）。
+    - 一段「为什么要你裁决」的业务化说明：讲清这一步之后全是机器自动执行、只有人能拍板语义判断、
+      不定就会卡住或被机器按最宽理解硬合并（用非技术人员能懂的大白话风格，避免引擎黑话）。
 
     ## 必须包含
 
-    - 说明：不回答的后果
-    - 完整的问题清单（源自 clarification_questions）
-    - 每个问题的建议回答格式（源自 clarification_questions）
-    - 统一的用户回答模板（按 BQ-1~N / IQ-1~N / OQ-1~N 排列）
+    - 说明：不回答 / 不批准的后果
+    - 完整问题清单（问题实质原封不动来自 clarification_questions，仅做业务化翻译呈现）
+    - 待批准的 Resolution 提议清单（合并/派生优先，配证据）
+    - 统一的用户回答与裁决模板
     - 继续流程指引（/req-understand continue <run_id>）
 
     ## 禁止
 
-    - 新增 DR-x 系列编号（如果 clarification_questions 中不存在）
-    - 将 IQ 类问题拆分为"需裁决的"和"不需裁决的"两组不同的展示编号体系
-    - 在回答模板中要求用户按 DR-x 编号回答（用户应直接按 BQ/IQ/OQ 编号回答）
+    - 新增原问题清单不存在的编号体系
+    - 替用户对任何关系拍板

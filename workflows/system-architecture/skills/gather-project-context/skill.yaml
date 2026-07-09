@@ -1,7 +1,7 @@
 skill:
   name: gather-project-context
   version: "1"
-  description: "项目上下文收集节点规范——读取原始需求文档、技术栈说明和现有实现资产"
+  description: "项目上下文收集节点规范——消费 Architecture Command collect 注入的上游产物，不自行翻静态文档"
   policy:
     allowed_decisions:
       - done
@@ -12,36 +12,44 @@ skill:
       - "输出 constraints 或 optimization function"
       - "编写代码"
       - "替用户裁决需求"
+      - "自行读取项目需求文档目录下的原始 PRD（那是 Evidence，不是 Context）"
+      - "自行读取项目 README / AGENTS.md 等开发指引推断技术栈或架构基线（可能含已废弃的架构基准）"
+      - "在 collect 注入的上下文缺失时回退到静态文档（应标记为风险项）"
   content: |
     # Gather Project Context Node
 
-    本节点是 system-architecture 工作流的前置步骤。目标是把项目中的原始文档和现有实现资产
-    收集为结构化的 `project_analysis`，让后续架构节点能基于完整的项目上下文做决策。
+    本节点是 system-architecture 工作流的前置步骤。目标是把 Architecture Command 的 collect
+    已注入的上游产物 + 现有实现资产收集为结构化的 `project_analysis`，让后续架构节点基于
+    完整的项目上下文做决策。
 
-    ## 必须读取的文件
+    ## R9 硬约束：消费注入的上下文，不要自己去翻静态文档
 
-    按以下优先级读取项目文档（使用 Read 工具）：
+    本节点的需求上下文已由 Architecture Command 的 collect 按 artifact_id / lineage_id
+    聚合并注入。**Canonical Requirement（final_requirement）已是唯一 SoT**，原始 PRD 是
+    Evidence 不是 Context。
 
-    0. **final_requirement（如可用）**: 如果上下文中提供了 final_requirement，
-       先 Read 其中的"原始文档来源"章节，获取已记录的文档路径清单，
-       避免重复搜索。然后按清单逐份 Read 原始文档。
-    1. **原始产品需求文档**: `docs/requirement/` 目录下所有 `.md` 文件
-       - 这是需求理解工作流产出的 `final_requirement` 的原始输入
-       - 包含完整的页面结构、字段定义、业务规则、数据口径
-       - 如果已在步骤 0 中通过 final_requirement 的引用读取过，可跳过
-    2. **项目 README**: `README.md`
-       - 已确定的技术栈选型、核心链路、项目结构
-    3. **开发指引**: `AGENTS.md`、`CLAUDE.md`
-       - 项目约定和开发环境信息
+    **禁止（否则 R9 失效，会把废弃架构喂给下游）：**
+    - 禁止自行读取项目需求文档目录下的原始 PRD——`sources:` 指针仅供必要时人工追溯，
+      不作为本节点输入。
+    - 禁止自行读取项目 README / AGENTS.md 等开发指引推断技术栈或架构基线——这类文档
+      可能指向已废弃的架构基准。技术栈应从 goal / project_context 中获取；
+      如缺失，标记为风险项（"技术栈上下文缺失"），不要回退到静态文档。
 
-    ## 必须探索的代码资产（如存在）
+    ## 允许读取的内容
 
-    使用 Glob 检查以下目录是否存在，存在则深入读取：
-
-    4. **现有数据模型**: `backend/app/models/` — SQLAlchemy ORM 模型定义
-    5. **现有 API 路由**: `backend/app/api/` — FastAPI 路由和接口契约
-    6. **现有数据库迁移**: `backend/alembic/versions/` — 数据库 schema 变更历史
-    7. **现有前端页面**: `frontend/src/pages/` — 已实现的页面和组件
+    1. **collect 注入的上游产物**（首要来源）：
+       - final_requirement（Seed Artifact）：Canonical Requirement，含完整需求实体、
+         规则、约束、验收标准、Evidence Index。从 goal 中嵌入的路径读取。
+       - 如本次是修订既有 lineage：collect 还会注入该 lineage 的历史 Runtime Artifact
+         （final_architecture / data_model 历史版本），读它们理解当前架构基线。
+    2. **现有代码资产**（运行时事实，不属于"静态文档井"）：
+       先用 Glob 探明项目实际技术栈与目录结构（不要假设某种语言的固定布局），
+       再按发现的布局读取以下类别的资产（如存在）：
+       - 现有数据模型 / ORM 实体定义
+       - 现有数据库 DDL 或 schema 迁移文件
+       - 现有 API 路由与接口契约
+       - 现有前端页面与组件
+       项目用何种语言/框架由探索结果决定，不预设 Python/Go/某栈的固定路径。
 
     ## 输出产物 project_analysis 必须包含
 
@@ -77,13 +85,16 @@ skill:
     - 如不存在：标注"尚无实现"
 
     ## 6. 差距分析
-    - 需求文档定义的能力 vs 现有实现的覆盖情况
+    - 需求定义的能力 vs 现有实现的覆盖情况（含 v1.0→v1.1 的增量范围）
     - 关键缺口列表
     - 现有实现中可能与需求冲突的约束
+
+    ## 7. 上下文缺失风险
+    - 标注哪些信息本应从 collect 注入但不可用（如"缺少历史架构基线""技术栈上下文缺失"）
     ```
 
     ## 判断标准
 
-    - `done`: 已阅读全部可用文档，产物完整覆盖所有维度。
-    - `blocked`: 关键文档缺失或无法读取，且无法继续。
+    - `done`: 已消费 collect 注入的上游产物并探索现有代码资产，产物完整覆盖所有维度。
+    - `blocked`: collect 未注入必需的上游产物（如缺 final_requirement），且无法继续。
     - `fail`: 发现根本性冲突或不可调和的输入矛盾。

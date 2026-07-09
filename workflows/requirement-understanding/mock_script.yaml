@@ -1,12 +1,14 @@
 # mock 模式 decision 脚本。
-# 纯需求理解链路，不包含 advice。
+# 四层需求规范化链路（Build Baseline -> Semantic Resolution -> Canonicalization -> Coverage Check）。
 
 decision_script:
-  understand_deepseek:
+  build_baseline:
     - done
-  understand_claude:
+  resolve_deepseek:
     - done
-  understand_codex:
+  resolve_claude:
+    - done
+  resolve_codex:
     - done
   review_by_claude:
     - done
@@ -14,11 +16,13 @@ decision_script:
     - done
   review_by_deepseek:
     - done
-  combine_consensus:
+  combine_resolution:
     - done
   generate_clarification_questions:
     - done
-  human_clarification_gate:
+  human_semantic_gate:
     - done
-  final_requirement_synthesis:
+  canonicalize:
+    - done
+  coverage_check:
     - done

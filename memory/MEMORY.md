@@ -4,3 +4,4 @@
 - [预存测试技术债](preexisting-test-debt.md) — main 上 schema_contract + test_cancel 本就失败，评估回归先排除
 - [spec-dev 审核节点死循环](spec-dev-review-guard-loop.md) — output_review 易 revise 回流撞 max_visits，run failed 但代码常已产出
 - [worktree staging 基于 project_root 解析](worktree-staging-resolves-against-project-root.md) — worktree 下 run_root≠agent cwd，相对 staging_path 必须按 project_root 解析否则路径重复
+- [module-breakdown gate/collect 三处偏差](module-breakdown-gate-and-collect-gaps.md) — human gate 配了引擎不支持的 revise 分支、中间产物自带 lineage 污染 collect、coverage_gate 脚本节点需上游文件物理就位

@@ -1,7 +1,7 @@
 skill:
   name: requirement-gap-review
-  version: "1"
-  description: "需求理解交叉审查节点规范"
+  version: "2"
+  description: "Layer2 异源盲区校验节点规范——审 Resolution 提议的盲区，非提高理解质量"
   policy:
     allowed_decisions:
       - done
@@ -9,23 +9,25 @@ skill:
       - blocked
     forbidden_actions:
       - "输出技术路线、架构建议或实现计划"
-      - "重写被审查的需求理解文档"
+      - "重写被审查的 Resolution 提议"
       - "把 review 写成主观 advice"
+      - "自行批准或否决 Resolution（那是 Human Gate 的事）"
   content: |
-    # Requirement Gap Review Node
+    # Resolution Blind-spot Review Node（Layer2）
 
-    本节点只做 gap check / ambiguity check / scope check / consistency check。
+    审查某个模型的 Resolution 提议，对照 `baseline_requirement_set` 检查盲区。
+    目标不是"提高理解质量"，而是使多源提议相互成为**独立见证**（防共享盲点造成虚假 100%）。
 
     ## 审查维度
 
-    - 原始需求是否被准确复述
-    - 是否遗漏目标用户、场景、流程、规则、指标或边界
-    - 是否把方案设计混入需求理解
-    - 是否存在不可验收、不可验证或自相矛盾的表述
-    - 哪些问题必须由用户澄清
+    - 漏项：是否有 baseline 项未被纳入任何等价/合并/派生判断
+    - 合错：是否把非同一对象判为等价（Fidelity 风险）
+    - 碎裂：是否同一对象未归并（Canonicalization 风险）
+    - 派生成立性：derived-from 提议是否成立、是否附了 Evidence
+    - 分歧：与本模型独立视角相比存在哪些分歧（标红作 Fidelity 风险）
 
     ## 判断标准
 
-    - `done`: 审查完成，可进入后续合并。
+    - `done`: 盲区校验完成，可进入合并。
     - `blocked`: 输入不足，无法审查。
-    - `fail`: 被审查文档严重偏离需求或不可审查。
+    - `fail`: 被审提议严重偏离 baseline 或不可审查。

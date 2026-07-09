@@ -12,6 +12,8 @@ skill:
       - "删除关键决策链路"
       - "隐藏未确认假设和残余风险"
       - "省略 ADR 的 reversibility cost"
+      - "改写或推翻 evaluation_report 已判定的 verdict（尤其把'已定'转述成'待定'、pass 转述成 fail）"
+      - "省略末尾 `freeze restatement` 机读块或漏回指某条 eval verdict"
   content: |
     # Architecture Freeze + ADR Node
 
@@ -24,7 +26,7 @@ skill:
     - Drivers / Constraints / Objectives 到架构决策的追踪矩阵
     - 系统上下文、组件职责和边界
     - 关键业务流程、数据架构和集成契约
-    - Evaluation Gate 评分矩阵摘要和最终通过依据
+    - Evaluation Gate 评分矩阵摘要和最终通过依据（**逐条忠实引用 evaluation_report 的判定，不得改写其 verdict 极性**；如认为 eval 判错，不能在冻结时静默改写，应触发 revise 或在残留风险中显式标注分歧）
     - Hard Constraints 合规声明
     - Soft Constraints 权衡说明
     - 风险、开放问题和需要验证的假设
@@ -46,3 +48,31 @@ skill:
     - `done`: 架构已冻结，ADR 完整，且关键决策可追溯。
     - `blocked`: 缺少通过 Evaluation Gate 的方案，无法可靠冻结。
     - `fail`: 定稿过程失败或架构不可接受。
+
+    ## 必须输出机读回指块（末尾，供 verdict_consistency_check 门核对）
+
+    evaluation_report 末尾有一个 `eval verdict` 机读块（关键结论 + 极性）。本节点必须在
+    final_architecture 末尾嵌一个 fenced block（语言标 `freeze restatement`），对**每一条**
+    eval verdict 以同一 `id` 回指，并声明本节点的转述与承接的极性。
+
+    **硬规则**：`verdict` 极性必须与 eval 同 id 的 verdict 一致。若你在冻结中确实需要
+    改变某条判定（如发现 eval 判错），**不能**在此直接翻转极性——那正是要堵住的漂移；
+    应改为 `revise` 回流或在残留风险显式标注分歧，由人裁决。门会拦截极性翻转（退出码 1）。
+
+    格式：
+
+    ```text
+    ```freeze restatement
+    - ref: COMPLIANCE
+      verdict: pass
+      restated: 冻结确认无 hard constraint 违反，满足进入 freeze 条件
+    - ref: HC-5
+      verdict: defined
+      restated: 10 项校验 CR-24 已明确；仅各项判定阈值降 OQ-01
+    - ref: F5-STRATEGY
+      verdict: covered
+      restated: 策略只读页数据来源经 seed migration 0011 / 内部接口写入，非空表
+    ```
+    ```
+
+    每条 `ref` 必须命中 eval verdict 里存在的 `id`；不得漏回指、不得翻转极性。
