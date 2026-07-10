@@ -29,6 +29,12 @@ outputs:
     produced_by:
       - evaluation_gate
 
+  architecture_review:
+    type: markdown
+    description: "Human Gate 架构方案审查意见——六维语义审查结论、修订建议和人工裁决文件模板"
+    produced_by:
+      - architecture_review
+
   conflict_revision_doc:
     type: markdown
     description: "基于 violation / conflict 的修订策略、完整修订后架构和约束放宽审批请求"

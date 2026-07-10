@@ -688,6 +688,41 @@ class Runner:
             })
         return summary
 
+    def _backfill_artifact_from_staging(
+        self, task_result, state_name: str, task_model, vr
+    ) -> None:
+        """产物登记兜底：artifacts 为空但期望产物已落盘 staging 时自动补登记。
+
+        命名规则与 _build_agent_input 中 staging_paths 保持一致：
+        - output_name = task.output
+        - staging 文件 = staging/<state>/<output_name>.md
+        - 扁平 artifact_path = artifacts/<output_name>.md（与产物登记契约一致）
+
+        仅在文件真实存在时补登记；文件不存在则不动，交由后续校验按原逻辑处理。
+        """
+        from ..tasks.result import ArtifactRef
+
+        output_name = task_model.output
+        staging_dir = os.path.join(self.context.staging_root, "staging", state_name)
+        candidate = os.path.join(staging_dir, f"{output_name}.md")
+        if not os.path.exists(candidate):
+            return
+
+        backfilled = ArtifactRef(
+            name=output_name,
+            staging_path=os.path.abspath(candidate),
+            artifact_path=f"artifacts/{output_name}.md",
+            type="markdown",
+        )
+        # task_result.artifacts 可能是 ArtifactRef 列表或 dict 列表，统一追加 dict
+        # 以兼容 get_artifacts()（其对 dict/对象都能解析）与 to_dict() 序列化。
+        if not isinstance(task_result.artifacts, list):
+            task_result.artifacts = []
+        task_result.artifacts.append(backfilled.to_dict())
+        vr.warnings.append(
+            f"artifacts 为空，按 staging 兜底补登记产物: {output_name} <- {candidate}"
+        )
+
     def _validate_task_result(self, task_result, state_name: str):
         """Runtime v2: 三态校验 TaskResult 和 Artifact，返回 ValidResult。
 
@@ -718,6 +753,18 @@ class Runner:
 
         # ── 步骤 1：纯函数数据校验 ──
         vr: ValidResult = validate_tr(task_result.to_dict(), route_shape)
+
+        # ── 步骤 1.5：artifacts backfill（产物登记兜底）──
+        # 根因修复：agent 首次未在 stdout 输出合法 TaskResult 时，引擎兜底成
+        # invalid_output/artifacts=[]，随后 Repair 只允许改 status/decision、
+        # 禁止改 artifacts，导致即便正文产物已真实落盘 staging，也永远补不回
+        # artifacts 登记 → promote 空转 → 产物丢失却以 success 蒙混过关。
+        # 这里在文件系统校验前兜底：当 task_result 未登记任何产物、但该 state
+        # 期望的 output 产物文件确实存在于 staging 时，自动补登记一条 artifact，
+        # 使其走完后续存在性校验 / worktree 复制 / containment，与正常产物同路径。
+        # 对已正确登记 artifacts 的节点零影响（仅在 artifacts 为空时触发）。
+        if not task_result.get_artifacts() and task_model and task_model.output:
+            self._backfill_artifact_from_staging(task_result, state_name, task_model, vr)
 
         # ── 步骤 2-5：文件系统校验 ──
         # 复用现有 artifact staging 自动修正 + worktree 复制 + 路径 containment 逻辑

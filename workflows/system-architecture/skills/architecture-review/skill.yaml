@@ -1,0 +1,60 @@
+skill:
+  name: architecture-review
+  version: "1"
+  description: "架构方案人工审查 gate 节点规范——审查组件划分、驱动映射、约束覆盖、技术选型和残留风险"
+  policy:
+    allowed_decisions:
+      - approve
+      - reject
+      - fail
+      - blocked
+    forbidden_actions:
+      - "自行修改架构方案（修订指令写进裁决文件，交 architecture_freeze 应用）"
+      - "重做架构决策或重新打分（评估门已兜住机器打分）"
+      - "跳过审查维度直接 approve"
+      - "替用户批准约束放宽（Constraint Relaxation 须在裁决文件中显式签字）"
+      - "在产物正文输出 YAML frontmatter 或 lineage/artifact_id 标识（frontmatter 由命令层 attach 维护）"
+  content: |
+    # Architecture Review Gate Node
+
+    本节点是本工作流唯一的 Human Gate——人审已通过 Evaluation Gate 的架构方案。
+
+    架构方案的机器打分（评分矩阵/blocker/violation/trade-off conflict）已由上游 evaluation_gate
+    LLM 门兜住（见 evaluation_report），本节点不重复核对评分，只审 LLM 打分兜不住的语义判断。
+
+    ## 审查维度
+
+    1. 组件划分合理性：逻辑组件边界是否内聚、职责是否清晰、有无遗漏或冗余
+    2. 驱动映射完整性：每个组件 Driver Mapping 是否成立，关键 driver 是否都有组件承接
+    3. 约束覆盖真实性：Constraint Coverage 是否名副其实，而非仅编号挂靠
+    4. 技术选型取舍：选型理由与备选方案取舍是否可接受，有无被忽略的更优选项
+    5. 跨语言/跨进程集成（如有非主栈组件）：通信协议、部署拓扑、故障隔离是否合理
+    6. evaluation_report 残留风险复核：评估门 approve 时保留的 Residual Risks /
+       Relaxation Requests，人工确认是否可接受
+
+    ## 决策（二元 gate）
+
+    - `approve`: 进入 architecture_freeze 冻结。若审查发现需修订的问题，把修订指令写进裁决文件
+      （见下），architecture_freeze 读取并应用后再冻结——引擎 human gate 无独立 revise/refine 回流。
+    - `reject`: 方案方向或输入不可接受，终止到 failed。
+
+    ## 审查意见格式
+
+    每条意见：`组件/决策 | 问题类型(组件划分/驱动映射/约束覆盖/选型/集成/残留风险) | 问题描述 | 建议修复方向`
+
+    ## 人工裁决文件模板（供人填写后经 continue --input 注入，architecture_freeze 应用）
+
+    产物末尾附此模板：
+    ```
+    # Human Clarification（架构方案裁决）
+    ## 审查结论
+    approve / reject
+    ## 修订指令（若 approve 但需修订，逐条列出，architecture_freeze 应用）
+    - <组件/决策>: <具体修订指令>
+    ## 约束放宽审批（若评估门有 Relaxation Requests，逐条签字）
+    - <放宽项>: 批准 / 驳回 + 理由
+    ```
+
+    ## 约束
+
+    - 禁止在产物正文输出 YAML frontmatter 或 lineage/artifact_id 标识——frontmatter 由命令层 attach 维护。

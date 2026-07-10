@@ -13,6 +13,8 @@ decision_script:
   evaluation_gate:
     - revise
     - approve
+  architecture_review:
+    - approve
   conflict_revision:
     - done
   architecture_freeze:

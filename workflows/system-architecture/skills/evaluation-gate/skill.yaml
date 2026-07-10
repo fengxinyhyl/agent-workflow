@@ -42,11 +42,37 @@ skill:
 
     ## 判断标准
 
-    - `approve`: constraint compliance 为 pass，且无 blocker。
+    - `approve`: constraint compliance 为 pass，且无 blocker。**待人裁决项不阻断
+      approve**：详见下方"待裁决项归属"。
     - `revise`: 存在可修复 blocker、violation 或 trade-off conflict。
     - `reject`: 方案方向或输入根本不可接受。
-    - `blocked`: 缺少评估所需关键输入。
+    - `blocked`: **仅限**"缺少评估所需关键输入"——即评估这个动作本身没法做
+      （如 architecture_draft 未提供、constraints 缺失、上游产物读不到）。
+      **不要**用 blocked 表达"方案里有未闭合的外部依赖 / 待人拍板的开放问题"——
+      那不是 blocked，见下方。
     - `fail`: 评估过程失败或发现不可继续的安全边界冲突。
+
+    ## 待裁决项归属（防死锁——务必遵守）
+
+    本工作流在 evaluation_gate **之后**紧接一个 Human Gate（architecture_review），
+    专门供人逐项裁决开放问题、外部依赖、约束放宽等"需要人拍板"的事项。到达人工门的
+    **唯一路径**是 evaluation_gate 判 `approve`。
+
+    因此，当出现"**架构设计层面合规（constraint compliance = pass、hard constraints
+    全部 covered、零 violation），但存在若干需要人来确认/拍板的开放问题（Unresolved
+    Questions、待确认的外部/跨系统依赖、需显式审批的 constraint relaxation）**"这种局面时：
+
+    - **正确决策是 `approve`**，并把这些待裁决项如实登记到 `Residual Risks`（保留风险）
+      和 `Relaxation Requests`（需显式审批项）中，随方案带下去，交由 architecture_review
+      人工门逐张裁决。
+    - **不要**把这些待裁决项重新包装成 `Blocker` 而判 `revise` 或 `blocked`。它们不是
+      "评估缺输入"（blocked 的本意），也不是"agent 改架构能自行消解的可修复 blocker"
+      （revise 的本意）——它们本就该由人在下游人工门处理。
+    - 判据自查：如果你的评分矩阵 compliance=pass、HC 全 covered、无 violation，却想判
+      revise/blocked，**几乎一定是把待人裁决项误当成了 blocker**。回到 approve，把它们
+      写进 Residual Risks / Relaxation Requests。
+    - 只有当开放问题确实构成"设计层面的硬约束违反或不可接受的方向性缺陷"（即 compliance
+      本身应判 fail）时，才用 revise（可修复）或 reject（方向不可接受）。
 
     ## 必须输出机读裁决块（末尾，供 verdict_consistency_check 门与 architecture_freeze 回指）
 
