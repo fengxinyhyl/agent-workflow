@@ -127,12 +127,25 @@ def _parse_items(block_text):
     return items, warnings
 
 
-def _polarity_group(verdict):
-    """返回 verdict 所属极性组的下标；未知取值返回 None。"""
+def _norm_verdict(verdict):
+    """归一化 verdict，取核心极性词（首个字母 token），剥离括号/后缀标注。
+
+    容忍 `covered (relaxation)`、`pass with caveat` 这类带审批/说明后缀的写法——
+    极性由核心词（covered/pass/...）决定，后缀不影响极性判断。
+    """
     if not verdict:
         return None
+    m = re.match(r"\s*([a-z]+)", verdict.lower())
+    return m.group(1) if m else None
+
+
+def _polarity_group(verdict):
+    """返回 verdict 所属极性组的下标；未知取值返回 None。"""
+    core = _norm_verdict(verdict)
+    if not core:
+        return None
     for i, grp in enumerate(_POLARITY_GROUPS):
-        if verdict in grp:
+        if core in grp:
             return i
     return None
 
@@ -184,9 +197,10 @@ def main(argv):
         if eg is None or fg is None:
             warnings.append(f"{eid}: verdict 取值不在已知极性槽（eval='{ev}' freeze='{fv}'），无法判极性，请人工核对")
             continue
-        # 极性一致 = 归一化取值完全相同。同一对立组内取不同值（defined vs deferred）即翻转；
+        # 极性一致 = 归一化核心极性词相同（剥离 (relaxation) 等后缀）。
+        # 同一对立组内取不同核心词（defined vs deferred）即翻转；
         # 跨组（如 pass vs deferred）语义不可比，同样按不一致处理。
-        if ev != fv:
+        if _norm_verdict(ev) != _norm_verdict(fv):
             polarity_flips.append((eid, ev, fv))
 
     # 悬空回指：freeze 回指了 eval 里不存在的 id

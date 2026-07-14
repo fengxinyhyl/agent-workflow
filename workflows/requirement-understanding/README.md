@@ -59,7 +59,7 @@ flowchart TD
     end
 
     subgraph L4["第四层 覆盖校验 Coverage Check（确定性脚本）"]
-        COV[["coverage_check<br/>证明没丢基准项，未追溯即退出码 1"]]
+        COV[["coverage_check<br/>度量归一召回，缺口标红不阻断，仅硬错误退出码 1"]]
     end
 
     BRS --> RD
@@ -92,7 +92,7 @@ flowchart TD
 | **L2 语义** | 3× `resolve_*` → 3× `review_by_*` → `combine_resolution` → `generate_clarification_questions` | baseline + goal | `resolution`、`clarification_questions` | **唯一允许做语义判断的层。** 多模型独立提出"哪些是同一对象/可合并/派生"，异源互检，合并为一份待批准裁决集，并就分歧生成澄清问题。 |
 | **L2 裁决** | `human_semantic_gate` ★ | resolution + 澄清问题 | 暂停，等人工 `continue` 注入裁决 | 全流程**唯一的人类语义权威**。批准/否决每条合并与派生关系、回答澄清。派生关系必须逐条签字（覆盖校验兜不住派生）。 |
 | **L3 归一** | `canonicalize` | baseline + 已批准 resolution + 人工裁决 | `final_requirement` | 确定性机械层：把批准后的裁决集套用到基准上，重命名/去重/分配编号/回指。**只套用不推理（Apply not Reason）**，发现新关系要退回第二层而非私自决定。 |
-| **L4 校验** | `coverage_check` | baseline + resolution + final | `coverage_report` | 确定性脚本门（非大模型）：经裁决集解析后比对，证明 `final_requirement` 没丢任何基准项，存在未追溯项即退出码 1、工作流失败。 |
+| **L4 校验** | `coverage_check` | baseline + resolution + final | `coverage_report` | 确定性脚本看板（非大模型）：经裁决集解析后比对，度量 `final_requirement` 对基准项的归一召回。**未追溯的基准项与断言蒸发只标红进报告、供人工裁量，不阻断（退出码 0）**；仅产物缺失/机读块缺失等硬错误才退出码 1 使工作流失败。 |
 
 ---
 
@@ -104,7 +104,7 @@ flowchart TD
 三个模型各自读基准、互不参考地提出语义关系，再交叉审查（A 的提议由 B 审）。目的不是"少数服从多数"——一致性分数（`consensus_score`）已被降级，不再是通过依据。分歧不被抹平，而是被标红为保真度（Fidelity）风险，交给人裁决。多源在这里的作用是相互成为**独立见证**，暴露单模型的盲点。
 
 **2. 覆盖校验用确定性脚本，故意不用大模型。**
-覆盖率校验如果也交给模型判断，它会和第二层的盲点重合——模型漏看的项，它自己也检不出来，反而给出虚假的 100%。所以第四层是一段纯 Python 脚本，靠机读锚点做集合比对，未追溯项直接非零退出。**机器兜机器兜得住的，人只兜机器兜不住的。**
+覆盖率校验如果也交给模型判断，它会和第二层的盲点重合——模型漏看的项，它自己也检不出来，反而给出虚假的 100%。所以第四层是一段纯 Python 脚本，靠机读锚点做集合比对，把未追溯项标红进报告供人工裁量（不阻断），只有产物/机读块缺失这类硬错误才非零退出。**机器算机器算得清的（召回度量），人裁机器裁不了的（缺口是否可接受）。**
 
 **3. 全局只有一个人类语义裁决点。**
 所有需要人拍板的判断——等价、合并、派生、澄清——全部收敛到 `human_semantic_gate` 这一个门。人不需要逐条审基准全集，也不审整份需求，只审"被提议合并/派生的这些关系对不对"，并配有 `Source → Merged` 证据。**人的注意力是最稀缺的，把它集中花在机器判不了的语义分歧上。**
@@ -119,7 +119,7 @@ flowchart TD
 - 只规范化需求，**不输出技术选型、架构建议或实现计划**。
 - **不产血缘（lineage）**（血缘从架构阶段开始），产物是纯 markdown，不盖 lineage_id / artifact_id。
 - `final_requirement` **不含实现进度标记**（勾选/🟡/待 Mxx 等）——单一事实来源（SoT）只讲系统"该怎样"，不讲"做到哪了"，进度归 `00-implementation-status.md`。
-- 通过依据是**覆盖校验无未追溯项 + 人类裁决门批准**，不是模型间的一致性分数。
+- 通过依据是**人类裁决门批准 + 覆盖校验无硬错误**（未追溯项标红供人工裁量、不阻断通过），不是模型间的一致性分数。
 
 ---
 ---
@@ -181,7 +181,7 @@ python -m agent_workflow.cli continue -r <run_id> -w workflows\requirement-under
 | `human_clarification_request` | `human_semantic_gate` | 暂停前的裁决请求（澄清 + Resolution 提议 + Evidence） |
 | `human_clarification` | `continue --input` | 用户澄清回答 + 对 Resolution 的裁决 |
 | `final_requirement` | `canonicalize` | Layer3 Apply(Resolution) 的 Canonical Requirement View |
-| `coverage_report` | `coverage_check` | Layer4 覆盖报告（未追溯即退出码 1） |
+| `coverage_report` | `coverage_check` | Layer4 归一召回报告（缺口标红供人工裁量、不阻断，仅硬错误退出码 1） |
 
 ### 机读锚点约定
 

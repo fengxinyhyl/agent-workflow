@@ -5,3 +5,4 @@
 - [spec-dev 审核节点死循环](spec-dev-review-guard-loop.md) — output_review 易 revise 回流撞 max_visits，run failed 但代码常已产出
 - [worktree staging 基于 project_root 解析](worktree-staging-resolves-against-project-root.md) — worktree 下 run_root≠agent cwd，相对 staging_path 必须按 project_root 解析否则路径重复
 - [module-breakdown gate/collect 三处偏差](module-breakdown-gate-and-collect-gaps.md) — human gate 配了引擎不支持的 revise 分支、中间产物自带 lineage 污染 collect、coverage_gate 脚本节点需上游文件物理就位
+- [run 阻塞无 detach 但超时不杀子进程](run-command-blocks-no-detach.md) — cmd_run 同步跑到终态才返回、agent 走 Popen 子进程；调用方后台工具超时（Claude Code 10min）只停跟踪、不级联杀进程树，实测 run 挂后台跑 50min 正常；收到超时返回别 kill/重启，排查先分清三层超时

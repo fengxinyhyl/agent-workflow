@@ -74,6 +74,78 @@ def _find_artifact(run_root, name):
     return None
 
 
+def _parse_frontmatter(filepath):
+    """解析 Markdown 文件的 YAML frontmatter（零依赖，仅识别顶层 key: value）。
+
+    与 scripts/collect.py 同款确定性解析，用于按 artifact_id / lineage_id 全局定位
+    上游产物原文件——脚本自解析，不依赖文件被复制到 run 目录。
+    """
+    try:
+        with open(filepath, "r", encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return {}
+    if not text.startswith("---"):
+        return {}
+    end = text.find("---", 3)
+    if end == -1:
+        return {}
+    fm = {}
+    for line in text[3:end].splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or ":" not in line:
+            continue
+        key, _, val = line.partition(":")
+        fm[key.strip()] = val.strip()
+    return fm
+
+
+def _find_upstream_by_key(runs_dir, artifact_id=None, lineage_id=None, artifact_name=None):
+    """全局扫 docs/runs/*/artifacts/*.md，按 artifact_id 或 lineage_id 定位原文件。
+
+    确定性匹配（无 fuzzy）。优先级：
+      1. artifact_id 精确命中（最可靠，命令层 --seed 传入）
+      2. lineage_id + artifact_name 命中（--lineage 传入）
+      3. 纯 artifact_name 兜底（未传键时的手动裸跑；同名多份取路径序末个≈最新 run）
+    多命中时按路径排序（run_id 前缀近似时间序）取首个（键匹配）/末个（纯文件名兜底取最新）。
+    """
+    if not os.path.isdir(runs_dir):
+        return None
+    import glob as _glob
+    id_matches, lineage_matches, name_matches = [], [], []
+    for md in sorted(_glob.glob(os.path.join(runs_dir, "*", "artifacts", "*.md"))):
+        base_ok = artifact_name is None or os.path.basename(md) == f"{artifact_name}.md"
+        fm = _parse_frontmatter(md)
+        if artifact_id and fm.get("artifact_id") == artifact_id:
+            id_matches.append(md)
+        if lineage_id and fm.get("lineage_id") == lineage_id and base_ok:
+            lineage_matches.append(md)
+        if base_ok:
+            name_matches.append(md)
+    if id_matches:
+        return id_matches[0]
+    if lineage_matches:
+        return lineage_matches[0]
+    if name_matches:
+        return name_matches[-1]  # 纯文件名兜底：取最新 run
+    return None
+
+
+def _resolve_upstream(run_root, name, artifact_id=None, lineage_id=None):
+    """定位上游产物：先 run_root 本地查找，找不到再按 artifact_id/lineage_id 全局定位原文件。
+
+    保证手动裸跑（未经命令层把文件落到 run 目录）也能自行找到上游文件，不因缺文件 fail。
+    """
+    local = _find_artifact(run_root, name)
+    if local:
+        return local
+    runs_dir = os.path.dirname(os.path.abspath(run_root))
+    artifact_name = name[:-3] if name.endswith(".md") else name
+    return _find_upstream_by_key(
+        runs_dir, artifact_id=artifact_id, lineage_id=lineage_id, artifact_name=artifact_name
+    )
+
+
 def _read(path):
     with open(path, "r", encoding="utf-8") as fh:
         return fh.read()
@@ -160,17 +232,26 @@ def _parse_list(value):
 
 def main(argv):
     if len(argv) < 2:
-        _fail_hard("用法：mapping_check.py <run_root>")
+        _fail_hard("用法：mapping_check.py <run_root> [--seed <artifact_id>] [--lineage <lineage_id>]")
     run_root = argv[1]
     if not os.path.isdir(run_root):
         _fail_hard(f"run_root 不是目录：{run_root}")
 
-    fr_path = _find_artifact(run_root, "final_requirement.md")
+    # 可选参数：命令层已知 seed artifact_id / lineage_id，传入以精确定位上游原文件。
+    # 未传时脚本仍会按 artifact_name 全局扫描回退（见 _resolve_upstream）。
+    seed_id = _arg_value(argv, "--seed")
+    lineage_id = _arg_value(argv, "--lineage")
+
+    # module_breakdown_draft 是本 run 的产物，只在本地找。
     draft_path = _find_artifact(run_root, "module_breakdown_draft.md")
-    dm_path = _find_artifact(run_root, "data_model.md")
+    # final_requirement / data_model 是上游产物：本地找不到时按 artifact_id/lineage_id
+    # 全局定位原文件（脚本自解析，不依赖文件被复制到 run 目录）。
+    fr_path = _resolve_upstream(run_root, "final_requirement.md", artifact_id=seed_id)
+    dm_path = _resolve_upstream(run_root, "data_model.md", lineage_id=lineage_id)
 
     if fr_path is None:
-        _fail_hard(f"缺少 final_requirement.md（在 {run_root} 及 artifacts/ staging 下未找到）")
+        _fail_hard("缺少 final_requirement.md（run 目录及全局按 artifact_id 均未定位到；"
+                   "可传 --seed <artifact_id> 精确指定）")
     if draft_path is None:
         _fail_hard(f"缺少 module_breakdown_draft.md（在 {run_root} 及 artifacts/ staging 下未找到）")
 
@@ -274,6 +355,15 @@ def _report(cr_all, cr_denom, excluded, mod_items, table_all, table_ready,
     if not (unmapped_cr or unmapped_table or dangling_cr or dangling_table):
         scope = "CR + 数据表" if table_ready else "CR（data_model 未就绪，表覆盖跳过）"
         print(f"## ✅ 通过：{scope} 全部被模块覆盖，无悬空引用")
+
+
+def _arg_value(argv, flag):
+    """从 argv 提取 `--flag <value>` 的值，未提供返回 None。"""
+    if flag in argv:
+        idx = argv.index(flag)
+        if idx + 1 < len(argv):
+            return argv[idx + 1]
+    return None
 
 
 def _fail_hard(msg):

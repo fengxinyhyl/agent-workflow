@@ -29,7 +29,7 @@
 
 ## 工作流结构（先脚本兜覆盖，再人审语义）
 
-一条主链 + 一个修订回环。关键编排是：**确定性覆盖门排在人审之前**，先把机械完整性卡死，人审只需聚焦机器判不了的语义。
+一条主链，无回流。关键编排是：**确定性覆盖门排在人审之前**，先把机械完整性卡死，人审只需聚焦机器判不了的语义。人工裁决是二元 `approve / reject`（对齐引擎 Human Gate 只支持 approve/reject 的范式）；审查若发现需修订的问题，修订意见写进人工裁决文件、经 `continue --input` 注入，由 `finalize` 读取并应用——不再有独立的 revise/refine 回流节点。
 
 ```mermaid
 flowchart TD
@@ -42,16 +42,15 @@ flowchart TD
     DRAFT[/"module_breakdown_draft"/]
     CG[["coverage_gate<br/>CR 覆盖，表覆盖，悬空引用，未过即退出码 1"]]
     MC{{"mapping_check<br/>人审语义：架构落点、依赖、波次、边界"}}
-    RF["refine<br/>按审查意见逐条修订"]
-    FIN["finalize<br/>确定性锁定，只 Apply 人审结果"]
+    CLAR[/"human_clarification<br/>人工裁决文件，continue --input 注入"/]
+    FIN["finalize<br/>Apply 人工裁决修订 + 确定性锁定"]
     MB[/"module_breakdown<br/>运行时产物，propagate 同血缘"/]
 
     SEED --> DEC
     RT --> DEC
     DEC --> DRAFT --> CG --> MC
-    MC -->|"revise"| RF
-    RF -->|"回到覆盖门"| CG
     MC -->|"approve"| FIN
+    CLAR -.->|"注入修订指令"| FIN
     FIN --> MB --> DONE(["done"])
     MC -.->|"reject"| FAIL(["failed"])
 
@@ -60,14 +59,14 @@ flowchart TD
     classDef script fill:#e6f4ea,stroke:#34a853,color:#1a1a1a;
     classDef artifact fill:#f3e8fd,stroke:#a142f4,color:#1a1a1a;
     classDef term fill:#f1f3f4,stroke:#5f6368,color:#1a1a1a;
-    class DEC,RF,FIN model;
+    class DEC,FIN model;
     class MC gate;
     class CG script;
-    class SEED,RT,DRAFT,MB artifact;
+    class SEED,RT,DRAFT,CLAR,MB artifact;
     class DONE,FAIL term;
 ```
 
-> 图例：🟦 模型节点 ｜ 🟧 人工裁决门（六边形）｜ 🟩 确定性脚本门（双线框）｜ 🟪 产物（斜角框）｜ ⬜ 终态。确定性覆盖门排在人工门之前——先卡机械完整性，人审只碰语义。
+> 图例：🟦 模型节点 ｜ 🟧 人工裁决门（六边形，二元 approve/reject）｜ 🟩 确定性脚本门（双线框）｜ 🟪 产物（斜角框）｜ ⬜ 终态。确定性覆盖门排在人工门之前——先卡机械完整性，人审只碰语义。修订意见经人工裁决文件（`human_clarification`）注入，由 `finalize` 应用，无独立修订回流节点。
 
 ### 各节点职责
 
@@ -75,9 +74,8 @@ flowchart TD
 |------|------|------|-----------|
 | 拆解 | `decompose` | `module_breakdown_draft` | 基于注入的架构+数据模型+需求，切成可独立开发/测试/交付的模块：模块清单、依赖 DAG、并行波次、四列追溯定位表。**只拆解，不做架构决策、不写代码、不排开发计划。** |
 | **确定性门** | `coverage_gate` | `coverage_report` | 脚本门（非大模型）：门1 每条 CR 都被某模块 `covers_cr` 覆盖；门2 每张表都被某模块 `covers_table` 覆盖；门3 无悬空引用（引用了不存在的 CR/表）。有未覆盖或悬空即退出码 1。 |
-| 人审门 ★ | `mapping_check` | `mapping_review` | 全流程**唯一的人类裁决点**。只审脚本管不了的语义：架构落点对应、依赖 DAG 合理性、并行波次无写冲突、模块边界内聚、覆盖映射是否语义正确（而非仅编号挂靠）。裁决 `approve / revise`。**不重复核对覆盖计数，不新增模块。** |
-| 修订 | `refine` | `module_breakdown_draft`（迭代） | 严格按 `mapping_review` 列出的问题逐条修订，每条意见必有响应，附修订前后 diff，回到覆盖门重新走。**不自由发挥、不重设计架构、不新增未经审查的模块。** |
-| 锁定 | `finalize` | `module_breakdown` | 确定性投影：只 Apply 人审结果，锁定模块定义。输出锁定版清单/DAG/波次/四列追溯定位表 + 关键路径 + 模块间契约草案 + 审计追踪。**只锁定，不拆解、不修订。** |
+| 人审门 ★ | `mapping_check` | `mapping_review` | 全流程**唯一的人类裁决点**（二元 gate）。只审脚本管不了的语义：架构落点对应、依赖 DAG 合理性、并行波次无写冲突、模块边界内聚、覆盖映射是否语义正确（而非仅编号挂靠）。裁决 `approve / reject`——approve 进 finalize（需修订则把意见写进人工裁决文件供 finalize 应用），reject 终止。**不重复核对覆盖计数，不新增模块。** |
+| 锁定 | `finalize` | `module_breakdown` | 确定性投影：读取经 `continue --input` 注入的人工裁决文件（`human_clarification`），逐条应用其中"模块 ID → 修订指令"，再锁定模块定义。输出锁定版清单/DAG/波次/四列追溯定位表 + 关键路径 + 模块间契约草案 + 审计追踪。**只 Apply 裁决 + 锁定，不做新拆解、不做架构决策。** |
 
 ---
 
@@ -97,8 +95,8 @@ flowchart TD
 **4. 四列追溯定位表是核心交付物，不是附属文档。**
 模块 → 需求(CR) → 架构组件 → 数据表 → 验收标准(AC)的四列映射，是"架构一变就知道哪些模块要改"的那张表。它让下游变更影响分析从"靠人回忆"变成"查表",也是覆盖门能机械比对的前提。
 
-**5. finalize 是确定性锁定，不是又一轮拆解。**
-锁定节点只把人审通过的结果固化成最终产物——分配状态标记(新增/修订/复用)、补关键路径和模块间契约,没有自由度。它不重新拆分、不修订。**人审之后只 Apply 不 Reason**,保证最终产物和人审结论一致。
+**5. finalize 是确定性锁定，不是又一轮拆解——修订经裁决文件注入而非回流节点。**
+引擎的 Human Gate 只支持二元 `approve / reject`，无 revise 回流。所以 `mapping_check` 若发现需修订的问题，不走独立的修订节点回环，而是把"模块 ID → 修订指令"写进人工裁决文件（`human_clarification`），经 `continue --input` 注入；`finalize` 读取并逐条应用后再锁定（与 requirement-understanding 的 `canonicalize` 同范式）。锁定节点只把裁决通过的结果固化成最终产物——应用裁决修订、分配状态标记(新增/修订/复用)、补关键路径和模块间契约,没有自由度。它不重新拆分、不做架构判断、不新增未经审查的模块。**人审之后只 Apply 不 Reason**,保证最终产物和人审结论一致。
 
 ---
 
@@ -106,7 +104,7 @@ flowchart TD
 
 - 只做模块拆解，**不做架构决策**（那是 system-architecture 的事）、**不写代码、不排具体开发计划**（那是 spec-dev 的事）。
 - 人审的是拆解的语义质量（架构落点/依赖/波次/边界），不是架构决策；如对架构本身有异议，应回到架构阶段而非在此修改。
-- 修订只能基于 `mapping_review` 的具体问题，不能自由发挥、不能新增未经审查的模块。
+- 修订只能基于 `mapping_review` 的具体问题（经人工裁决文件注入、由 `finalize` 应用），不能自由发挥、不能新增未经审查的模块。
 - 产物**不含实现进度标记**（勾选/🟡/🟠）——进度归 `00-implementation-status.md`。
 - 模块 ID 一旦锁定，后续演进（evolution）通过 `supersedes` / `splits-into` / `merges-from` 追踪变更，不直接改写。
 
@@ -125,9 +123,9 @@ flowchart TD
 
 | 产物 | 来源节点 | 类型 | 作用 |
 |------|----------|------|------|
-| `module_breakdown_draft` | `decompose` / `refine` | 中间产物 | 模块清单、依赖 DAG、并行波次、四列追溯定位表（草稿，可迭代） |
+| `module_breakdown_draft` | `decompose` | 中间产物 | 模块清单、依赖 DAG、并行波次、四列追溯定位表（草稿） |
 | `coverage_report` | `coverage_gate` | 中间产物 | CR 覆盖 / 表覆盖 / 悬空引用的确定性校验报告 |
-| `mapping_review` | `mapping_check` | 中间产物 | 人审意见（架构落点/依赖/波次/边界），含每条问题的模块 ID 定位 |
+| `mapping_review` | `mapping_check` | 中间产物 | 人审意见（架构落点/依赖/波次/边界），含每条问题的模块 ID 定位 + 人工裁决文件模板 |
 | `module_breakdown` | `finalize` | **运行时** | 锁定版模块定义：清单/DAG/波次/四列追溯定位表/关键路径/模块间契约（同血缘标识） |
 
 ### 与其他工作流衔接

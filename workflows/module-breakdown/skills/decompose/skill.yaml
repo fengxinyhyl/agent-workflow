@@ -12,6 +12,7 @@ skill:
       - "写具体开发排期"
       - "做架构决策（那是 system-architecture 的事）"
       - "自由修改已冻结的 final_architecture 或 data_model"
+      - "在产物正文输出 YAML frontmatter 或 lineage/artifact_id 标识（中间产物不带 frontmatter、不进 lineage）"
   content: |
     # Decompose Node
 

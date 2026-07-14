@@ -26,9 +26,31 @@ skill:
     - 可维护性
     - 是否需要补充测试
 
+    ## Issue 契约（核心是 Acceptance）
+
+    每条问题附带四要素，**Acceptance 必填、Verification 可选**：
+
+    - **问题**：缺陷是什么、定位到文件/行。
+    - **Severity**：Blocking / Warning / Suggestion。
+    - **Acceptance（必填）**：修好后必须满足的客观、可判定条件，即"什么时候算修好了"。
+      命名误导、README/注释不一致、违反分层等设计/文档类问题同样要给 Acceptance，
+      不得因无法命令验证就不提。
+    - **Verification（可选）**：能给可执行命令就给（`gofmt -l` 空、`pytest` 全过、`grep -c` 为 0）；
+      无命令时写 `Manual Review` 或人工判定标准。
+
+    Acceptance 决定 Done，Verification 只是证明手段；不得因给不出命令而不提问题或不计入 revise。
+    复审按每条 Acceptance 判 closed / 未达成，依据 refinement 回报，必要时自行复验。
+
+    ## Verification 四状态
+
+    PASS（已验证达成）/ FAIL（已验证未达成）/ NOT_EXECUTED（有手段但未执行，须说明原因）/
+    UNVERIFIABLE（环境限制无法验证）。
+
     ## Decision
 
-    - `approve`: 可进入单元测试。
-    - `revise`: 需要回到 implement 修复。
-    - `reject`: 变更不可接受。
+    - `approve`: 所有 Blocking 的 Acceptance 均已达成，可进入单元测试。
+    - `revise`: 存在 FAIL / NOT_EXECUTED 的可修复 Blocking，回到 implement 修复。
+    - `reject`: 变更不可接受；**或**存在 UNVERIFIABLE 的 Blocking 无法在流程内闭环——
+      按 NEED-HUMAN 处理：在报告顶部醒目标注 `⚠️ NEED-HUMAN: <原因>` 与人工恢复指引，
+      决策 reject 交人工裁决，不得靠猜测 approve。
     - `blocked`: 缺少必要输入，无法完成审查。

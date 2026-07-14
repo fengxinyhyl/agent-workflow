@@ -165,16 +165,38 @@ tasks:
       - 若 diff artifact 不存在，必须读取 execution_report 中列出的文件逐项审查，
         并在 output_review_doc 中标明 diff 缺失带来的残余风险。
 
+      【Issue 契约 — 核心是 Acceptance，不是 Verification】
+      output_review_doc 中提出的每一条问题都必须显式附带:
+      - 问题: 缺陷是什么、在哪个文件哪一行
+      - Severity: Blocking / Warning / Suggestion
+      - Acceptance（必填，协议核心）: 修好后必须满足的、客观可判定的验收条件——
+        即"什么时候算修好了"。命名误导、README/注释不一致、违反分层等设计/文档类问题
+        同样要给 Acceptance（如"README 更新并反映当前行为"），不得因无法命令验证就不提。
+      - Verification（可选，只是证明手段）: 能给可执行命令就给（如 `gofmt -l` 输出为空、
+        `pytest -q` 全过、`grep -c` 为 0）；无命令时写 `Manual Review` 或人工判定的确切标准。
+      Acceptance 决定 Done，Verification 只是证明；不得因"给不出命令"而不提问题或不计入 revise。
+
       若已有上一轮的 output_review_doc 和 output_refinement_doc，
-      必须核对上一轮指出的问题是否已被修复。
+      必须逐条核对上一轮每个 Issue 的 Acceptance 是否已达成（依据 refinement 回报的验证结果，
+      必要时自行复验），达成标 closed，未达成说明差距。
+
+      【Verification 四状态】refinement 对每条 Issue 的验证结果应归为:
+      - PASS: 已验证达成
+      - FAIL: 已验证未达成
+      - NOT_EXECUTED: 未执行验证（必须说明原因）
+      - UNVERIFIABLE: 因环境限制无法验证（如无 PG16 跑不了 migration 集成测试）
 
       决策:
-      - approve: 执行结果可进入 validation
-      - revise: 存在可修复问题，回到 output_refinement
-      - reject: 变更不可接受，终止
+      - approve: 所有 Blocking Issue 的 Acceptance 均已达成（PASS，或经静态/人工判定达成）
+      - revise: 存在 FAIL 或 NOT_EXECUTED 的可修复 Blocking，回到 output_refinement
+      - reject: 变更不可接受，**或**存在 UNVERIFIABLE 的 Blocking 无法在本流程内闭环——
+        此时按 NEED-HUMAN 处理：在 output_review_doc 顶部醒目标注
+        `⚠️ NEED-HUMAN: <哪条 Acceptance 因何环境限制无法验证>`，
+        并给出人工恢复指引（补齐环境后 `retry` 续跑，或人工验收后手动推进），
+        然后决策 reject 交人工裁决，不得靠猜测 approve。
 
       输出 output_review_doc，并在 TaskResult decision 中使用 approve / revise / reject。
-    agent: codex
+    agent: claude-audit
     input:
       - plan_doc:latest
       - execution_report:latest
@@ -198,8 +220,29 @@ tasks:
       必须逐条回应审核/测试意见，说明采纳/延后/不采纳及原因，
       然后据此修改代码，保持改动紧凑。
 
+      【逐条回报 Acceptance — 对齐 review 的 Issue 契约】
+      对 review 提出的每一条 Issue，必须回报:
+      - 采纳/延后/不采纳及原因
+      - 实际修改（文件与要点）
+      - 按该 Issue 的 Acceptance 判定是否达成；有 Verification 手段的实际执行并贴出结果
+        （如实际运行 `gofmt -l`、`pytest`、`grep` 并给出输出），无手段的给出人工判定依据
+      - Verification 状态四选一: PASS / FAIL / NOT_EXECUTED（说明原因）/ UNVERIFIABLE（环境限制）
+      不允许在有可执行手段却未执行的情况下声称某条已修复（那属于 NOT_EXECUTED，不是 PASS）。
+
+      【收尾 Contract — 满足全部条款方可 done】
+      宣布 done 之前必须逐项确认并在 output_refinement_doc 中留痕:
+      1. review 的所有 Blocking Issue 均已处理（采纳修复 / 有据延后 / 有据不采纳）。
+      2. 每条已采纳 Issue 都已按其 Acceptance 判定，有手段的已执行 Verification 并给出四状态；
+         UNVERIFIABLE 的必须写明环境原因与剩余风险，交由 review 按 NEED-HUMAN 处理，不得静默跳过。
+      3. 已运行 `git status` **和 `git diff`**：status 确认无意外新增/残留文件，
+         diff 确认无越界改动、无顺手改坏的 unrelated 文件。
+      4. 本轮执行过程中产生的临时产物（一次性脚本、`coverage.out`、`.pytest_cache`、
+         `bin/`、`build/` 等工具生成物）已清理，或已显式纳入交付清单并说明用途；不得残留。
+      5. 上述 1~4 全部满足后，才在 TaskResult 中宣布 done。
+
       输出 output_refinement_doc，记录本轮回应、实际修改文件、
-      执行命令和验证情况。使用 done 表示本轮修订完成。
+      执行命令与验证结果（含四状态）、以及收尾 Contract 4 项的核对情况。
+      使用 done 表示本轮修订完成。
     agent: deepseek
     input:
       - plan_doc:latest
@@ -231,7 +274,7 @@ tasks:
       - reject: 测试暴露不可接受的问题，终止
 
       输出 test_report。
-    agent: codex
+    agent: deepseek
     input:
       - plan_doc:latest
       - execution_report:latest

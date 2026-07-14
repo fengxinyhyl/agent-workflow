@@ -1,9 +1,14 @@
-# Agent 配置模板（纳入版本库，命令使用通用默认 claude/codex，开箱即用）。
+# Agent 配置模板（纳入版本库，command 用通用默认 claude，开箱即用）。
 #
 # 引擎实际加载的是同目录的 agents.yaml（已被 .gitignore 忽略、不入库）。
 # 首次使用：复制本文件为 agents.yaml，按需把 command 改成个人 wrapper（如 cc-opus/cc-deepseek）：
 #     cp agents.example.yaml agents.yaml
 # 若不复制，请确保存在 agents.yaml，否则引擎读不到 agent 配置。
+#
+# 节点分工：
+#   claude(default,无Bash)     = 计划/修订计划/总结 —— 纯文档，无需命令
+#   claude-audit(auto,+Bash)   = 代码审查(output_review) —— 动态审查，跑 gofmt/pytest 验证代码
+#   deepseek(auto,+Bash)       = 审计划/执行/改代码/单测验证(validation) —— 需跑 go build/gofmt/pytest
 
 agents:
   claude:
@@ -19,17 +24,16 @@ agents:
     provider: claude
     command: "claude"
     cwd: "{project_root}"
-    permission_mode: default
+    permission_mode: auto
     allowed_tools: "Read,Grep,Glob,Write,Edit,Bash"
     timeout_seconds: 3600
-    description: "Claude DeepSeek — 审核计划/执行任务/修订任务"
+    description: "Claude DeepSeek — 审计划/执行/改代码/单测验证(validation)；auto+Bash 跑 go build/gofmt/pytest"
 
-  codex:
-    provider: codex
-    command: "codex"
+  claude-audit:
+    provider: claude
+    command: "claude"
     cwd: "{project_root}"
-    sandbox: workspace-write
-    permission_mode: default
-    allowed_tools: "Read,Grep,Glob,Write"
-    timeout_seconds: 7200
-    description: "Codex — 审核结果/校验测试"
+    permission_mode: auto
+    allowed_tools: "Read,Grep,Glob,Write,Edit,Bash"
+    timeout_seconds: 3600
+    description: "Claude Opus — 代码审查(output_review)，auto+Bash 动态跑 gofmt/pytest 验证代码"

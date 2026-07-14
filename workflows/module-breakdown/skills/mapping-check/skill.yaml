@@ -30,12 +30,27 @@ skill:
     5. coverage_report 语义复核：脚本已判 CR/表全覆盖，人工确认覆盖映射是否
        语义正确（模块声称覆盖某 CR 是否真的承接了该职责，而非仅编号挂靠）
 
-    ## 决策
+    ## 决策（二元 gate）
 
-    - `approve`: 全部通过，进入 finalize
-    - `revise`: 有问题需修正，进入 refine
-    - `reject`: 方案方向或输入不可接受，终止
+    - `approve`: 进入 finalize。若审查发现需修订的问题，把修订指令写进裁决文件（见下），
+      finalize 读取并应用后再锁定——无独立 revise/refine 回流。
+    - `reject`: 方案方向或输入不可接受，终止到 failed。
 
     ## 审查意见格式
 
     每条意见：`模块ID | 问题类型(架构落点/依赖/波次/边界) | 问题描述 | 建议修复方向`
+
+    ## 人工裁决文件模板（供人填写后经 continue --input 注入，finalize 应用）
+
+    产物末尾附此模板：
+    ```
+    # Human Clarification（模块拆解裁决）
+    ## 审查结论
+    approve / reject
+    ## 修订指令（若 approve 但需修订，逐条列出，finalize 应用）
+    - <模块ID>: <具体修订指令>
+    ```
+
+    ## 约束
+
+    - 禁止在产物正文输出 YAML frontmatter 或 lineage/artifact_id 标识——frontmatter 由命令层 attach 维护。

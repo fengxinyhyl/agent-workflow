@@ -11,14 +11,14 @@ goal + project_context
   ↓
 collect_inputs
   ↓
-extract_decision_items
-  ↓
-review_items
-  ↓ approve
+extract_decision_items ←──────┐
+  ↓                           │ revise（字段/问题质量/候选方案需修订，回流重抽）
+review_items ─────────────────┘
+  ↓ approve                    ╌╌► reject → failed（输入不适合进入裁决流程）
 publish_to_lark_sheets
   ↓
 human_decision_gate
-  ↓ approve + 人工已在电子表格中填写
+  ↓ approve + 人工已在电子表格中填写   ╌╌► reject → failed
 collect_sheets_results
   ↓
 synthesize_decision_package
@@ -26,7 +26,7 @@ synthesize_decision_package
 done
 ```
 
-`human_decision_gate` 是人工暂停点。工作流执行到这里后停止，等待用户在飞书电子表格裁决明细子表中填写裁决结果。
+`review_items` 是发布前的自动审查门（`approve / revise / reject`）：`revise` 回流到 `extract_decision_items` 重抽，`reject` 直接终止。`human_decision_gate` 是人工暂停点，工作流执行到这里后停止，等待用户在飞书电子表格裁决明细子表中填写裁决结果（`approve` 继续回收、`reject` 终止）。
 
 ## 明细子表字段
 

@@ -8,13 +8,22 @@ skill:
       - fail
       - blocked
     forbidden_actions:
-      - "新增拆解或修订（那是 decompose/refine 的事）"
+      - "新增拆解（本节点只应用裁决 + 锁定）"
+      - "自行发挥修订（只应用裁决文件明确列出的修订指令）"
       - "修改模块 ID（ID 一旦锁定不可变）"
       - "保留实现进度标记"
+      - "在产物正文输出 YAML frontmatter 或 lineage/artifact_id 标识（frontmatter 由命令层 attach 维护）"
   content: |
     # Finalize Node
 
-    锁定模块定义，产出最终 module_breakdown。只 Apply 人审结果，不做新拆解或判断。
+    应用人工裁决 + 锁定模块定义，产出最终 module_breakdown。
+
+    ## 应用人工裁决（对齐 requirement-understanding 的 canonicalize）
+
+    - 读取经 continue --input 注入的人工裁决文件（human_clarification）：
+      逐条应用"模块 ID → 修订指令"到 module_breakdown_draft。
+    - 裁决文件缺失或无修订项 → 直接锁定 draft 原样。
+    - 只应用裁决明确列出的修订，不自行发挥。
 
     ## 必须包含
 
@@ -25,12 +34,17 @@ skill:
     - 四列追溯定位表（锁定版）
     - 关键路径（最长依赖链，标注咽喉模块）
     - 模块间契约草案（API/接口/数据格式约定）
-    - 审计追踪（run_id、上游 artifact_id）
+    - 审计追踪（正文引用 run_id、上游 artifact_id 作追溯说明——不是写 frontmatter）
+
+    ## frontmatter 约束
+
+    产物正文禁止输出 YAML frontmatter（`---` 块）或 lineage_id/artifact_id 字段。
+    lineage_id + artifact_id 由命令层 attach 对 module_breakdown 盖章维护。
 
     ## 模块 ID 格式约定
 
     - 模块文档文件名 = `Mxx[-a/b]-<kebab-case-name>.md`
-    - 模块文档头部 HTML 注释：
+    - 模块文档头部 HTML 注释（这是模块文档正文内容，非 YAML frontmatter）：
       ```html
       <!-- lineage: id: Mxx, status: accepted, depends: Mxx(a),Mxx(b) -->
       ```

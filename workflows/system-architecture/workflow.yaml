@@ -22,7 +22,8 @@ initial_state: gather_context
 
 guards:
   max_visits: 3
-  max_duration_minutes: 240
+  # 含人工 gate（architecture_review），墙钟含等待人工裁决时长，任何有限值都会误杀 continue，故设 0（关闭）
+  max_duration_minutes: 0
   max_retries: 2
   on_guard_failed: failed
 

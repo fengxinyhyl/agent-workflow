@@ -182,7 +182,11 @@ def main(argv):
 
     # 警告：声称零 ALTER 既有表却 ALTER 了既有表
     altered_existing = sorted(altered_tables & existing_tables)
-    claims_zero_alter = bool(re.search(r"零\s*ALTER|不\s*ALTER|无\s*ALTER\s*变更|HC-13", dm_text))
+    # 检测"零 ALTER 既有表"类断言，排除针对治理表/外表的断言（非业务既有表）
+    # 只在明确声称"零/不 ALTER 既有/现有/业务表"时触发，单纯引用 HC-13 编号不算
+    claims_zero_alter = bool(re.search(
+        r"(零|不|无)\s*ALTER\s*(既有|现有|业务)\s*(表|主表|对象表)",
+        dm_text, re.IGNORECASE))
     if claims_zero_alter and altered_existing:
         warnings.append(
             f"产物声称零 ALTER 既有表（HC-13 类约束），但检出对既有表的 ALTER：{', '.join(altered_existing)}。"
@@ -198,10 +202,24 @@ def main(argv):
 
 
 def _looks_like_new_use(text, num):
-    """启发式：编号 num 附近是否出现"新建/建表/create"语境，用于区分"引用既有编号"与"当新编号用"。"""
+    """启发式：编号 num 附近是否出现"新建/建表/create"语境，用于区分"引用既有编号"与"当新编号用"。
+
+    两类误报排除（避免把正当的"依赖既有 migration"当成撞号）：
+      1. 引用上下文：窗口内出现"依赖/引用/基于/沿用/depends/see/ref"等引用词，
+         说明该编号是被引用的既有 migration，非本次新建。
+      2. 文件名前缀：编号后紧跟 `_`（如 `0002_create_object_tables.sql`）时，其后的
+         `create` 属既有 migration 文件名的一部分，不是"在本编号里建表"的信号——
+         判断新建语境时须剔除该文件名 token 再看。
+    """
+    _REF_WORDS = ("依赖", "引用", "基于", "沿用", "见 ", "参见", "depend", "see ", "ref", "requires")
     for m in re.finditer(re.escape(num), text):
         seg = text[max(0, m.start() - 40): m.end() + 40].lower()
-        if any(k in seg for k in ("新建", "建表", "create table", "create_", "一次性建")):
+        # 排除 1：引用上下文
+        if any(w in seg for w in _REF_WORDS):
+            continue
+        # 排除 2：剔除"<num>_xxx.sql"文件名 token（含其中的 create 等词）后再判新建语境
+        seg_wo_filename = re.sub(re.escape(num) + r"_[\w./-]*\.sql", " ", seg)
+        if any(k in seg_wo_filename for k in ("新建", "建表", "create table", "create_", "一次性建")):
             return True
     return False
 
