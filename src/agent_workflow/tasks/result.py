@@ -6,6 +6,7 @@ Agent 不允许输出下一 state 名称；即使输出了，Runner 也必须忽
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone, timedelta
@@ -62,8 +63,53 @@ class ArtifactRef:
 
 
 @dataclass
+class RecoveryInfo:
+    """协议恢复信息。仅当协议结论从非 native 途径获得时存在。
+
+    字段说明：
+      method: 恢复手段 (native / regex / synonym)
+      confidence: 可信度 (0.0~1.0)，首版只审计不路由
+      recovered_fields: 恢复了哪些字段
+      reason: 恢复原因说明
+      origin_text_hash: 散文原文短哈希 (sha256 前 16 字符)，用于审计溯源
+    """
+
+    method: str = "native"       # native | regex | synonym
+    confidence: float = 1.0
+    recovered_fields: list[str] = field(default_factory=list)
+    reason: str = ""
+    origin_text_hash: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "method": self.method,
+            "confidence": self.confidence,
+            "recovered_fields": list(self.recovered_fields),
+            "reason": self.reason,
+            "origin_text_hash": self.origin_text_hash,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> "RecoveryInfo | None":
+        if not data:
+            return None
+        return cls(
+            method=data.get("method", "native"),
+            confidence=data.get("confidence", 1.0),
+            recovered_fields=list(data.get("recovered_fields", [])),
+            reason=data.get("reason", ""),
+            origin_text_hash=data.get("origin_text_hash", ""),
+        )
+
+
+@dataclass
 class ExecutionMetadata:
-    """执行元数据（必填）。"""
+    """执行元数据（必填）。
+
+    协议轴字段（v4 protocol recovery）：
+      protocol_origin: 结论来源 (native/parser/repair/human)，缺省 native
+      recovery: 恢复详情，非恢复时为 None
+    """
 
     started_at: str = ""
     finished_at: str = ""
@@ -71,9 +117,37 @@ class ExecutionMetadata:
     attempt: int = 1
     exit_code: int = 0
     pid: int | None = None  # 子进程 PID（对齐 legacy WorkerResult.pid）
+    protocol_origin: str = "native"  # native | parser | repair | human
+    recovery: RecoveryInfo | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        d: dict[str, Any] = {
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "duration_seconds": self.duration_seconds,
+            "attempt": self.attempt,
+            "exit_code": self.exit_code,
+            "pid": self.pid,
+            "protocol_origin": self.protocol_origin,
+            "recovery": self.recovery.to_dict() if self.recovery else None,
+        }
+        return d
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> "ExecutionMetadata":
+        """从字典反序列化。缺省 protocol_origin=native、recovery=None 保证老数据兼容。"""
+        if not data:
+            return cls()
+        return cls(
+            started_at=data.get("started_at", ""),
+            finished_at=data.get("finished_at", ""),
+            duration_seconds=data.get("duration_seconds", 0.0),
+            attempt=data.get("attempt", 1),
+            exit_code=data.get("exit_code", 0),
+            pid=data.get("pid"),
+            protocol_origin=data.get("protocol_origin", "native"),
+            recovery=RecoveryInfo.from_dict(data.get("recovery")),
+        )
 
 
 @dataclass
@@ -232,10 +306,10 @@ class TaskResult:
             else:
                 artifacts.append(a)
 
-        # 处理 execution
+        # 处理 execution（用 from_dict 避免多余键 TypeError，老数据缺省兼容）
         exec_data = data.get("execution", {})
         if isinstance(exec_data, dict):
-            execution = ExecutionMetadata(**exec_data)
+            execution = ExecutionMetadata.from_dict(exec_data)
         else:
             execution = exec_data
 

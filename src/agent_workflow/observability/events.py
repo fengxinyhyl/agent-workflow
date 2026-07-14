@@ -49,6 +49,9 @@ class EventType(str, Enum):
     # 心跳
     Heartbeat = "Heartbeat"
 
+    # 协议恢复
+    ProtocolRecovery = "ProtocolRecovery"
+
 
 # 所有 P0 事件类型
 ALL_EVENTS: list[EventType] = list(EventType)
@@ -71,6 +74,10 @@ event_registry: dict[str, list[str]] = {
     EventType.TransitionSelected: ["current_state", "decision", "next_state", "timestamp"],
     EventType.GuardFailed: ["state", "guard_type", "reason", "timestamp"],
     EventType.Heartbeat: ["run_id", "state", "elapsed_seconds", "timestamp"],
+    EventType.ProtocolRecovery: [
+        "state", "agent", "method", "confidence", "recovered_fields",
+        "reason", "origin_text_hash", "timestamp",
+    ],
 }
 
 

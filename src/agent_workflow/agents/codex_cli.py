@@ -159,6 +159,8 @@ class CodexCLI(BaseAgent):
         task_result = self._parse_stream_output(state_name, stdout, stderr, agent_input)
 
         # 填充 execution metadata（含真实 duration + pid）
+        # 保留 _parse 恢复时写入的协议轴字段（protocol_origin / recovery）
+        prev_exec = task_result.get_execution()
         task_result.execution = ExecutionMetadata(
             started_at=started_at,
             finished_at=finished_at,
@@ -166,6 +168,8 @@ class CodexCLI(BaseAgent):
             attempt=1,
             exit_code=exit_code,
             pid=pid,
+            protocol_origin=prev_exec.protocol_origin,
+            recovery=prev_exec.recovery,
         )
 
         # D1: thread_id → session_id
@@ -294,6 +298,11 @@ class CodexCLI(BaseAgent):
         3. Fallback: 全局搜索 TaskResult
         4. 最终 fallback: exit_code 摘要
         """
+        # 从 skill_policy 提取恢复参数（空值防御）
+        skill_policy = getattr(agent_input, 'skill_policy', None) or {}
+        allowed_decisions = skill_policy.get("allowed_decisions", []) or []
+        enable_synonym_recovery = skill_policy.get("enable_synonym_recovery", False)
+
         # 第一步：收集全部 agent_message 文本，从最后一条开始尝试提取 TaskResult
         agent_messages: list[str] = []
         for line in stdout.splitlines():
@@ -307,12 +316,20 @@ class CodexCLI(BaseAgent):
 
         # 反向遍历：最后一条最可能包含完整 TaskResult
         for text in reversed(agent_messages):
-            parsed = _parse_task_result_text(text)
+            parsed = _parse_task_result_text(
+                text,
+                allowed_decisions=allowed_decisions,
+                enable_synonym_recovery=enable_synonym_recovery,
+            )
             if parsed is not None:
                 return parsed
 
         # 第二步：fallback 到全局搜索（兼容非 agent_message 的输出）
-        task_result = _parse_task_result_text(stdout)
+        task_result = _parse_task_result_text(
+            stdout,
+            allowed_decisions=allowed_decisions,
+            enable_synonym_recovery=enable_synonym_recovery,
+        )
         if task_result is not None:
             return task_result
 
@@ -346,7 +363,15 @@ class CodexCLI(BaseAgent):
     ) -> TaskResult:
         """从 agent_message 文本中解析 TaskResult（复用通用解析器）。"""
         stdout = result.stdout or ""
-        parsed = _parse_task_result_text(stdout)
+        # 从 skill_policy 提取恢复参数（空值防御）
+        skill_policy = getattr(agent_input, 'skill_policy', None) or {}
+        allowed_decisions = skill_policy.get("allowed_decisions", []) or []
+        enable_synonym_recovery = skill_policy.get("enable_synonym_recovery", False)
+        parsed = _parse_task_result_text(
+            stdout,
+            allowed_decisions=allowed_decisions,
+            enable_synonym_recovery=enable_synonym_recovery,
+        )
         if parsed is not None:
             return parsed
 

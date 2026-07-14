@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from .base import BaseAgent
-from ._parse import _parse_task_result_text, _extract_task_result_fallback
+from ._parse import _parse_task_result_text, _extract_task_result_fallback, PACKET_LAST_ASSISTANT_MARKER
 from ..context.agent_input import AgentInput
 from ..tasks.result import ExecutionMetadata, TaskResult, _now_iso
 
@@ -146,6 +146,8 @@ class ClaudeCLI(BaseAgent):
         task_result = self._parse_stream_output(state_name, stdout, stderr, agent_input)
 
         # 填充 execution metadata（含真实 duration + pid）
+        # 保留 _parse 恢复时写入的协议轴字段（protocol_origin / recovery）
+        prev_exec = task_result.get_execution()
         task_result.execution = ExecutionMetadata(
             started_at=started_at,
             finished_at=finished_at,
@@ -153,6 +155,8 @@ class ClaudeCLI(BaseAgent):
             attempt=1,
             exit_code=exit_code,
             pid=pid,
+            protocol_origin=prev_exec.protocol_origin,
+            recovery=prev_exec.recovery,
         )
 
         # C2: 提取 token usage
@@ -228,6 +232,11 @@ class ClaudeCLI(BaseAgent):
         2. Fallback: 在全部 stdout 文本中搜索 TaskResult
         3. 最终 fallback: exit_code 摘要
         """
+        # 从 skill_policy 提取恢复参数（空值防御）
+        skill_policy = getattr(agent_input, 'skill_policy', None) or {}
+        allowed_decisions = skill_policy.get("allowed_decisions", []) or []
+        enable_synonym_recovery = skill_policy.get("enable_synonym_recovery", False)
+
         # 第一步：在 JSONL 流中查找 type=result 事件
         result_text = ""
         for line in stdout.splitlines():
@@ -246,12 +255,20 @@ class ClaudeCLI(BaseAgent):
 
         # 尝试从 result_text 解析 TaskResult
         if result_text:
-            parsed = _parse_task_result_text(result_text)
+            parsed = _parse_task_result_text(
+                result_text,
+                allowed_decisions=allowed_decisions,
+                enable_synonym_recovery=enable_synonym_recovery,
+            )
             if parsed is not None:
                 return parsed
 
         # 第二步：fallback 到全局搜索（兼容旧的 text 格式）
-        parsed = _parse_task_result_text(stdout)
+        parsed = _parse_task_result_text(
+            stdout,
+            allowed_decisions=allowed_decisions,
+            enable_synonym_recovery=enable_synonym_recovery,
+        )
         if parsed is not None:
             return parsed
 
@@ -310,7 +327,7 @@ class ClaudeCLI(BaseAgent):
             f.write(f"# {state_name} claude debug packet\n\n")
             f.write(f"Session ID: {self._session_id}\n\n")
             if assistant_texts:
-                f.write("## 最后一条 assistant message\n\n")
+                f.write(PACKET_LAST_ASSISTANT_MARKER + "\n\n")
                 f.write(assistant_texts[-1])
                 f.write("\n\n")
             elif result_text:

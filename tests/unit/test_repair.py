@@ -421,6 +421,261 @@ class TestRepairFlow:
             shutil.rmtree(tmpdir2, ignore_errors=True)
 
 
+# ── 测试：Repair 瘦身（格式转换模式） ──
+
+class TestRepairFormatConversion:
+    """验证 _build_repair_agent_input 的格式转换 mode 与 IO 退化（Issue-3）。"""
+
+    def test_format_conversion_prompt_contains_product(self):
+        """有 output 产物时，repair prompt 含产物正文片段（格式转换模式）。"""
+        task_model = _make_task("review", "review code", "mock", allowed_decisions=["approve", "revise"])
+        state_model = _make_state("review", "review", on={"approve": "done"}, default="failed")
+        wf = _make_minimal_workflow(
+            tasks={"review": task_model},
+            states={"review": state_model},
+        )
+
+        runner, tmpdir = _create_runner(wf, "test format conversion")
+
+        try:
+            from agent_workflow.context.agent_input import (
+                AgentInput, TaskConfig as AgentTaskConfig,
+            )
+            from agent_workflow.validators.validation_result import ValidResult
+
+            # 写产物到 staging
+            staging_dir = os.path.join(runner.context.staging_root, "staging", "review")
+            os.makedirs(staging_dir, exist_ok=True)
+            product_content = "代码审查结论：revise。需要修改安全模块的错误处理逻辑。"
+            product_path = os.path.join(staging_dir, "review_doc.md")
+            with open(product_path, "w", encoding="utf-8") as f:
+                f.write(product_content)
+
+            staging_paths = {"review_doc": product_path}
+            original_ai = AgentInput(
+                task=AgentTaskConfig(
+                    name="review", instruction="review code", agent="mock",
+                    inputs=[], output="review_doc",
+                ),
+                context=runner.context,
+                state_name="review",
+                staging_paths=staging_paths,
+            )
+
+            tr = TaskResult(
+                schema_version=1, task_id="review", state="review",
+                agent="mock", status="success", decision="revise",
+                summary="review done",
+                execution=ExecutionMetadata(
+                    started_at=_now_iso(), finished_at=_now_iso(), exit_code=0,
+                ),
+            )
+
+            vr = ValidResult(
+                valid=False, repairable=True,
+                reason="decision not in allowed",
+                errors=["decision 'revise' not in allowed_decisions"],
+            )
+
+            repair_input = runner._build_repair_agent_input(
+                "review", tr, vr, original_ai
+            )
+
+            # 格式转换模式下不应出现旧措辞
+            assert "只允许修改 status 和 decision" not in repair_input.task.instruction
+            # 应含产物正文片段
+            assert "已落盘的产物正文" in repair_input.task.instruction
+            assert "代码审查结论" in repair_input.task.instruction
+            # 应含"不需要重新审查"
+            assert "不需要重新审查" in repair_input.task.instruction
+        finally:
+            if runner._jsonl_sink:
+                try:
+                    runner._jsonl_sink.close()
+                except Exception:
+                    pass
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_io_degradation_no_staging_file(self):
+        """产物文件不存在时退化为精简 prompt，不抛异常。"""
+        task_model = _make_task("review", "review code", "mock", allowed_decisions=["approve", "revise"])
+        state_model = _make_state("review", "review", on={"approve": "done"}, default="failed")
+        wf = _make_minimal_workflow(
+            tasks={"review": task_model},
+            states={"review": state_model},
+        )
+
+        runner, tmpdir = _create_runner(wf, "test io degradation")
+
+        try:
+            from agent_workflow.context.agent_input import (
+                AgentInput, TaskConfig as AgentTaskConfig,
+            )
+            from agent_workflow.validators.validation_result import ValidResult
+
+            # 不创建 staging 文件，staging_paths 指向不存在的路径
+            staging_paths = {"review_doc": os.path.join(tmpdir, "nonexistent", "review_doc.md")}
+            original_ai = AgentInput(
+                task=AgentTaskConfig(
+                    name="review", instruction="review code", agent="mock",
+                    inputs=[], output="review_doc",
+                ),
+                context=runner.context,
+                state_name="review",
+                staging_paths=staging_paths,
+            )
+
+            tr = TaskResult(
+                schema_version=1, task_id="review", state="review",
+                agent="mock", status="invalid_output", decision=None,
+                summary="parse failed",
+                execution=ExecutionMetadata(
+                    started_at=_now_iso(), finished_at=_now_iso(), exit_code=0,
+                ),
+            )
+
+            vr = ValidResult(
+                valid=False, repairable=True,
+                reason="invalid_output",
+                errors=["no structured output"],
+            )
+
+            # 不应抛异常
+            repair_input = runner._build_repair_agent_input(
+                "review", tr, vr, original_ai
+            )
+
+            # 退化模式下应含"只允许修改 status 和 decision"措辞
+            assert "只允许修改 status 和 decision" in repair_input.task.instruction
+        finally:
+            if runner._jsonl_sink:
+                try:
+                    runner._jsonl_sink.close()
+                except Exception:
+                    pass
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_io_degradation_no_output_name(self):
+        """task.output 为空时退化为精简 prompt，不抛异常。"""
+        task_model = _make_task("review", "review code", "mock", allowed_decisions=["approve", "revise"])
+        state_model = _make_state("review", "review", on={"approve": "done"}, default="failed")
+        wf = _make_minimal_workflow(
+            tasks={"review": task_model},
+            states={"review": state_model},
+        )
+
+        runner, tmpdir = _create_runner(wf, "test no output")
+
+        try:
+            from agent_workflow.context.agent_input import (
+                AgentInput, TaskConfig as AgentTaskConfig,
+            )
+            from agent_workflow.validators.validation_result import ValidResult
+
+            # task.output 为 None/空
+            original_ai = AgentInput(
+                task=AgentTaskConfig(
+                    name="review", instruction="review code", agent="mock",
+                    inputs=[], output="",  # 空 output
+                ),
+                context=runner.context,
+                state_name="review",
+            )
+
+            tr = TaskResult(
+                schema_version=1, task_id="review", state="review",
+                agent="mock", status="invalid_output", decision=None,
+                summary="parse failed",
+                execution=ExecutionMetadata(
+                    started_at=_now_iso(), finished_at=_now_iso(), exit_code=0,
+                ),
+            )
+
+            vr = ValidResult(
+                valid=False, repairable=True,
+                reason="invalid_output",
+                errors=["no structured output"],
+            )
+
+            # 不应抛异常
+            repair_input = runner._build_repair_agent_input(
+                "review", tr, vr, original_ai
+            )
+
+            # 退化模式
+            assert "只允许修改 status 和 decision" in repair_input.task.instruction
+        finally:
+            if runner._jsonl_sink:
+                try:
+                    runner._jsonl_sink.close()
+                except Exception:
+                    pass
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_repair_success_origin_repair(self):
+        """repair 成功后 protocol_origin="repair"（Issue-3 验收点 c）。"""
+        task_model = _make_task("plan", "test", "mock", allowed_decisions=["done"])
+        state_model = _make_state("plan", "plan", on={"done": "done"}, default="failed")
+        wf = _make_minimal_workflow(
+            tasks={"plan": task_model},
+            states={"plan": state_model},
+        )
+
+        runner, tmpdir = _create_runner(wf, "test repair origin")
+
+        try:
+            from agent_workflow.context.agent_input import (
+                AgentInput, TaskConfig as AgentTaskConfig,
+            )
+            from agent_workflow.validators.validation_result import RouteShape
+            from agent_workflow.validators.task_result import validate
+
+            runner._last_agent_input = AgentInput(
+                task=AgentTaskConfig(
+                    name="plan", instruction="test", agent="mock",
+                ),
+                context=runner.context,
+                state_name="plan",
+            )
+
+            # 构造 invalid_output（模拟 parser 失败进入 Repair）
+            tr = TaskResult(
+                schema_version=1,
+                task_id="plan",
+                state="plan",
+                agent="mock",
+                status="invalid_output",
+                decision=None,
+                summary="parse failed",
+                execution=ExecutionMetadata(
+                    started_at=_now_iso(),
+                    finished_at=_now_iso(),
+                    exit_code=0,
+                ),
+            )
+
+            rs = RouteShape(has_on=True, allowed_decisions=("done",))
+            vr = validate(tr.to_dict(), rs)
+
+            # Repair：MockAgent 默认返回 success + "done"
+            repaired_tr, success = runner._repair_task_result(
+                tr, "plan", vr, max_attempts=1
+            )
+
+            assert success is True
+            exec_meta = repaired_tr.get_execution()
+            assert exec_meta.protocol_origin == "repair", (
+                f"repair 成功后 protocol_origin 应为 'repair'，实际为 '{exec_meta.protocol_origin}'"
+            )
+        finally:
+            if runner._jsonl_sink:
+                try:
+                    runner._jsonl_sink.close()
+                except Exception:
+                    pass
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 # ── 测试：向后兼容 ──
 
 # ── 测试：MockAgent status_script ──

@@ -32,6 +32,7 @@ from typing import Any
 from ..config.models import WorkflowConfig, TaskModel, AgentModel
 from ..context.run_context import RunContext
 from ..context.agent_input import AgentInput, TaskConfig as AgentTaskConfig
+from ..agents._parse import PACKET_LAST_ASSISTANT_MARKER
 from .machine import StateMachine, TransitionResult
 from .guard import GuardChecker, GuardResult
 
@@ -394,6 +395,10 @@ class Runner:
                             "warnings": validation.warnings,
                             "timestamp": _now_iso(),
                         })
+
+                        # 协议恢复检测：parser 恢复 → 发审计事件
+                        self._emit_protocol_recovery_if_needed(task_result, current_state)
+
                         self._promote_artifacts(task_result)
 
                     elif validation.repairable:
@@ -884,6 +889,28 @@ class Runner:
         return vr
 
     # ═══════════════════════════════════════════════════════════════════════════
+    # 协议恢复审计事件
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def _emit_protocol_recovery_if_needed(self, task_result, state_name: str):
+        """若 task_result 的协议来源非 native 且有 recovery 信息，发射 ProtocolRecovery 事件。"""
+        exec_meta = task_result.get_execution()
+        recovery = exec_meta.recovery
+        if recovery is None:
+            return
+
+        self._get_event_bus().emit("ProtocolRecovery", {
+            "state": state_name,
+            "agent": task_result.agent or "",
+            "method": recovery.method,
+            "confidence": recovery.confidence,
+            "recovered_fields": list(recovery.recovered_fields),
+            "reason": recovery.reason,
+            "origin_text_hash": recovery.origin_text_hash,
+            "timestamp": _now_iso(),
+        })
+
+    # ═══════════════════════════════════════════════════════════════════════════
     # Repair 编排（Runtime v2）
     # ═══════════════════════════════════════════════════════════════════════════
 
@@ -912,23 +939,87 @@ class Runner:
         validation_result,
         original_agent_input: AgentInput,
     ) -> AgentInput:
-        """基于原始 AgentInput 构建 Repair 专用输入。
+        """构建 Repair 专用输入（格式转换器模式）。
 
-        Repair prompt 明确约束：只允许重新输出 status 和 decision，
-        禁止修改 summary/issues/artifacts。
+        喂回：① 本 state 已落盘的 output 产物正文（截断约 8000 字符）、
+        ② 最后一条 assistant 原话（从 debug packet 读取）。
+
+        Repair 指令明确：不需要重审，只把结论包装成合法 TaskResult JSON。
+        读文件失败/缺失时退化为精简 prompt（不因 IO 异常崩）。
         """
         from ..validators.validation_result import ValidResult
         from ..context.agent_input import TaskConfig as AgentTaskConfig
 
-        repair_instruction = (
-            f"你的上一次输出校验未通过。\n"
-            f"原因：{validation_result.reason}\n"
-            f"错误明细：{'; '.join(validation_result.errors)}\n\n"
-            f"请重新输出 TaskResult JSON，**只允许修改 status 和 decision 字段**。\n"
-            f"禁止修改 summary、issues、artifacts、execution 等其他字段。\n"
-            f"当前 decision 值：{original_task_result.decision}\n"
-            f"当前 status 值：{original_task_result.status}\n"
-        )
+        # ── 尝试读取产物正文 ──
+        output_body = ""
+        output_name = original_agent_input.task.output
+        if output_name:
+            # 经 staging_paths 取产物路径（与 backfill 命名一致 staging/<state>/<output>.md）
+            staging_path = original_agent_input.staging_paths.get(output_name, "")
+            if not staging_path:
+                staging_dir = os.path.join(
+                    self.context.staging_root, "staging", state_name
+                )
+                staging_path = os.path.join(staging_dir, f"{output_name}.md")
+            try:
+                if os.path.exists(staging_path):
+                    with open(staging_path, "r", encoding="utf-8") as f:
+                        raw = f.read()
+                    # 截断到约 8000 字符
+                    if len(raw) > 8000:
+                        output_body = raw[:8000] + "\n\n...(truncated)"
+                    else:
+                        output_body = raw
+            except (OSError, IOError):
+                pass  # 退化不崩
+
+        # ── 尝试读取最后一条 assistant 原话 ──
+        last_message = ""
+        packet_path = getattr(original_task_result, 'packet_path', '') or ""
+        try:
+            if packet_path and os.path.exists(packet_path):
+                with open(packet_path, "r", encoding="utf-8") as f:
+                    last_message = f.read()
+                # 只保留 "最后一条 assistant message" 之后的内容（约 4000 字符）
+                marker = PACKET_LAST_ASSISTANT_MARKER
+                if marker in last_message:
+                    last_message = last_message[last_message.index(marker):]
+                if len(last_message) > 4000:
+                    last_message = last_message[:4000] + "\n\n...(truncated)"
+        except (OSError, IOError):
+            pass  # 退化不崩
+
+        # ── 构建 Repair prompt ──
+        if output_body or last_message:
+            # 格式转换模式：喂回产物正文 + 最后消息
+            repair_instruction = (
+                f"你的上一次输出校验未通过。\n"
+                f"原因：{validation_result.reason}\n"
+                f"错误明细：{'; '.join(validation_result.errors)}\n\n"
+                f"**你不需要重新审查。**请只把以下已有结论包装成合法的 TaskResult JSON，"
+                f"最后一条消息只输出 ```json``` 代码块。\n"
+                f"当前 decision 值：{original_task_result.decision}\n"
+                f"当前 status 值：{original_task_result.status}\n"
+            )
+            if output_body:
+                repair_instruction += (
+                    f"\n## 已落盘的产物正文\n\n{output_body}\n"
+                )
+            if last_message:
+                repair_instruction += (
+                    f"\n## 最后一条 assistant 原话\n\n{last_message}\n"
+                )
+        else:
+            # 退化模式：无产物/消息可喂，用精简 prompt
+            repair_instruction = (
+                f"你的上一次输出校验未通过。\n"
+                f"原因：{validation_result.reason}\n"
+                f"错误明细：{'; '.join(validation_result.errors)}\n\n"
+                f"请重新输出 TaskResult JSON，**只允许修改 status 和 decision 字段**。\n"
+                f"禁止修改 summary、issues、artifacts、execution 等其他字段。\n"
+                f"当前 decision 值：{original_task_result.decision}\n"
+                f"当前 status 值：{original_task_result.status}\n"
+            )
 
         # 替换 task instruction 为 Repair prompt
         repair_task = AgentTaskConfig(
@@ -994,7 +1085,11 @@ class Runner:
             vr2 = self._validate_task_result(repaired_result, state_name)
 
             if vr2.valid:
-                # 修复成功
+                # 修复成功 → 统一置 protocol_origin="repair"
+                # （含 repair 输出本身靠 parser 恢复兜底的子场景）
+                exec_meta = repaired_result.get_execution()
+                exec_meta.protocol_origin = "repair"
+                self._emit_protocol_recovery_if_needed(repaired_result, state_name)
                 return repaired_result, True
 
             if not vr2.repairable:

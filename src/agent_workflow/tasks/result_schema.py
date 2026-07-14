@@ -109,7 +109,7 @@ TASK_RESULT_SCHEMA: dict[str, Any] = {
                     "description": "进程退出码",
                 },
                 "pid": {
-                    "type": "integer",
+                    "type": ["integer", "null"],
                     "description": "子进程 PID",
                 },
             },

@@ -116,3 +116,53 @@ class TestConsoleSink:
         })
         output = stream.getvalue()
         assert output == ""  # 不打印心跳
+
+
+class TestProtocolRecoveryEvent:
+    """ProtocolRecovery 事件类型与 registry 完整性。"""
+
+    def test_event_type_exists(self):
+        """EventType.ProtocolRecovery 已注册。"""
+        from agent_workflow.observability.events import EventType
+        assert hasattr(EventType, "ProtocolRecovery")
+        assert EventType.ProtocolRecovery == "ProtocolRecovery"
+
+    def test_registry_has_entry(self):
+        """ProtocolRecovery 在 event_registry 中有条目。"""
+        from agent_workflow.observability.events import event_registry
+        assert "ProtocolRecovery" in event_registry
+
+    def test_registry_required_fields(self):
+        """ProtocolRecovery registry 包含所有必要字段（含 origin_text_hash）。"""
+        from agent_workflow.observability.events import event_registry
+        required = event_registry["ProtocolRecovery"]
+        assert "state" in required
+        assert "agent" in required
+        assert "method" in required
+        assert "confidence" in required
+        assert "recovered_fields" in required
+        assert "reason" in required
+        assert "origin_text_hash" in required
+        assert "timestamp" in required
+
+    def test_validate_event_missing_field(self):
+        """validate_event 能检测缺失字段。"""
+        from agent_workflow.observability.events import validate_event
+        payload = {"state": "review"}  # 缺少多数字段
+        missing = validate_event("ProtocolRecovery", payload)
+        assert len(missing) > 0
+        assert "agent" in missing
+        assert "timestamp" in missing
+
+    def test_validate_event_complete(self):
+        """所有字段齐全时 validate_event 返回空列表。"""
+        from agent_workflow.observability.events import validate_event
+        payload = {
+            "state": "review", "agent": "claude-opus",
+            "method": "regex", "confidence": 1.0,
+            "recovered_fields": ["decision"],
+            "reason": "test", "origin_text_hash": "abc123",
+            "timestamp": "2026-01-01T00:00:00+08:00",
+        }
+        missing = validate_event("ProtocolRecovery", payload)
+        assert missing == []

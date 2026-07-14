@@ -8,6 +8,7 @@ from agent_workflow.tasks.result import (
     ArtifactRef,
     ExecutionMetadata,
     Issue,
+    RecoveryInfo,
     VALID_STATUSES,
 )
 
@@ -297,3 +298,182 @@ class TestTaskResultSchema:
         assert "token_usage" not in required
         assert "log_path" not in required
         assert "packet_path" not in required
+
+
+class TestExecutionMetadataProtocolAxis:
+    """ExecutionMetadata 协议轴字段：protocol_origin + recovery。"""
+
+    def test_default_protocol_origin_native(self):
+        """默认 protocol_origin 为 "native"。"""
+        meta = ExecutionMetadata()
+        assert meta.protocol_origin == "native"
+        assert meta.recovery is None
+
+    def test_explicit_protocol_origin_parser(self):
+        """显式设置 protocol_origin="parser" 并带 recovery。"""
+        ri = RecoveryInfo(
+            method="regex", confidence=1.0,
+            recovered_fields=["decision"],
+            reason="test", origin_text_hash="abc123",
+        )
+        meta = ExecutionMetadata(protocol_origin="parser", recovery=ri)
+        assert meta.protocol_origin == "parser"
+        assert meta.recovery is not None
+        assert meta.recovery.method == "regex"
+
+    def test_to_dict_no_recovery(self):
+        """recovery=None 时 to_dict 输出 None（不抛异常）。"""
+        meta = ExecutionMetadata(protocol_origin="native")
+        d = meta.to_dict()
+        assert d["protocol_origin"] == "native"
+        assert d["recovery"] is None
+
+    def test_to_dict_with_recovery(self):
+        """recovery 非 None 时 to_dict 嵌套序列化。"""
+        ri = RecoveryInfo(
+            method="regex", confidence=1.0,
+            recovered_fields=["decision"],
+            reason="JSON missing", origin_text_hash="deadbeef12345678",
+        )
+        meta = ExecutionMetadata(protocol_origin="parser", recovery=ri)
+        d = meta.to_dict()
+        assert d["protocol_origin"] == "parser"
+        assert d["recovery"]["method"] == "regex"
+        assert d["recovery"]["confidence"] == 1.0
+        assert d["recovery"]["recovered_fields"] == ["decision"]
+        assert d["recovery"]["origin_text_hash"] == "deadbeef12345678"
+
+    def test_roundtrip_with_recovery(self):
+        """ExecutionMetadata + RecoveryInfo to_dict → from_dict round-trip。"""
+        ri = RecoveryInfo(
+            method="regex", confidence=1.0,
+            recovered_fields=["decision"],
+            reason="test", origin_text_hash="abc123",
+        )
+        meta = ExecutionMetadata(
+            started_at="2026-01-01T00:00:00+08:00",
+            finished_at="2026-01-01T00:01:00+08:00",
+            protocol_origin="parser", recovery=ri,
+        )
+        restored = ExecutionMetadata.from_dict(meta.to_dict())
+        assert restored.protocol_origin == "parser"
+        assert restored.recovery is not None
+        assert restored.recovery.method == "regex"
+        assert restored.recovery.confidence == 1.0
+        assert restored.recovery.recovered_fields == ["decision"]
+        assert restored.recovery.origin_text_hash == "abc123"
+
+    def test_from_dict_old_data_no_protocol_fields(self):
+        """老字典无 protocol_origin/recovery —→ 缺省 native/None。"""
+        old = {"started_at": "2026-01-01", "finished_at": "2026-01-01",
+               "duration_seconds": 10, "attempt": 1, "exit_code": 0}
+        meta = ExecutionMetadata.from_dict(old)
+        assert meta.protocol_origin == "native"
+        assert meta.recovery is None
+
+    def test_from_dict_empty(self):
+        """空 dict —→ 全默认值。"""
+        meta = ExecutionMetadata.from_dict({})
+        assert meta.protocol_origin == "native"
+        assert meta.recovery is None
+
+    def test_from_dict_none(self):
+        """None —→ 全默认值。"""
+        meta = ExecutionMetadata.from_dict(None)
+        assert meta.protocol_origin == "native"
+        assert meta.recovery is None
+
+
+class TestRecoveryInfo:
+    """RecoveryInfo 序列化/反序列化。"""
+
+    def test_default_values(self):
+        ri = RecoveryInfo()
+        assert ri.method == "native"
+        assert ri.confidence == 1.0
+        assert ri.recovered_fields == []
+        assert ri.reason == ""
+        assert ri.origin_text_hash == ""
+
+    def test_to_dict(self):
+        ri = RecoveryInfo(
+            method="synonym", confidence=0.95,
+            recovered_fields=["decision"], reason="L2 hit",
+            origin_text_hash="hash123",
+        )
+        d = ri.to_dict()
+        assert d["method"] == "synonym"
+        assert d["confidence"] == 0.95
+        assert d["recovered_fields"] == ["decision"]
+        assert d["origin_text_hash"] == "hash123"
+
+    def test_from_dict_valid(self):
+        d = {"method": "regex", "confidence": 1.0,
+             "recovered_fields": ["decision", "status"],
+             "reason": "test", "origin_text_hash": "abc"}
+        ri = RecoveryInfo.from_dict(d)
+        assert ri is not None
+        assert ri.method == "regex"
+        assert ri.recovered_fields == ["decision", "status"]
+
+    def test_from_dict_none(self):
+        """None 输入 —→ 返回 None。"""
+        assert RecoveryInfo.from_dict(None) is None
+
+    def test_from_dict_partial(self):
+        """部分字段缺失 —→ 默认值补齐。"""
+        ri = RecoveryInfo.from_dict({"method": "regex"})
+        assert ri is not None
+        assert ri.method == "regex"
+        assert ri.confidence == 1.0
+        assert ri.recovered_fields == []
+        assert ri.origin_text_hash == ""
+
+
+class TestTaskResultProtocolAxis:
+    """TaskResult 内 protocol_origin/recovery 端到端序列化。"""
+
+    def test_roundtrip_with_recovery(self):
+        """TaskResult 含 parser 恢复信息 round-trip。"""
+        ri = RecoveryInfo(
+            method="regex", confidence=1.0,
+            recovered_fields=["decision"], reason="test", origin_text_hash="abc",
+        )
+        exec_meta = ExecutionMetadata(
+            started_at="2026-01-01T00:00:00+08:00",
+            finished_at="2026-01-01T00:01:00+08:00",
+            protocol_origin="parser", recovery=ri,
+        )
+        tr = TaskResult(
+            task_id="review", state="review", agent="claude",
+            status="success", decision="revise",
+            summary="parser 恢复", execution=exec_meta,
+        )
+        d = tr.to_dict()
+        restored = TaskResult.from_dict(d)
+        assert restored.status == "success"
+        assert restored.decision == "revise"
+        exec_r = restored.get_execution()
+        assert exec_r.protocol_origin == "parser"
+        assert exec_r.recovery is not None
+        assert exec_r.recovery.method == "regex"
+
+    def test_old_taskresult_no_protocol_fields(self):
+        """老 TaskResult 反序列化后 protocol_origin=native、recovery=None。"""
+        old_json = {
+            "schema_version": 1,
+            "task_id": "old_task",
+            "state": "old_state",
+            "status": "success",
+            "decision": "done",
+            "summary": "old",
+            "execution": {
+                "started_at": "2026-01-01T00:00:00+08:00",
+                "finished_at": "2026-01-01T00:01:00+08:00",
+                "duration_seconds": 60, "attempt": 1, "exit_code": 0,
+            },
+        }
+        tr = TaskResult.from_dict(old_json)
+        exec_meta = tr.get_execution()
+        assert exec_meta.protocol_origin == "native"
+        assert exec_meta.recovery is None
