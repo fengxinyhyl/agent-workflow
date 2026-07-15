@@ -243,3 +243,27 @@ def _extract_task_result_fallback(
         )
 
     return None
+
+
+def _backfill_identity(
+    result: TaskResult | None,
+    *,
+    state_name: str,
+    agent_name: str,
+) -> TaskResult | None:
+    """为 parser 产出的 TaskResult 回填运行时身份字段（仅补空值，不覆盖模型给的）。
+
+    _parse_task_result_text 是纯文本解析器，拿不到 state_name/agent。散文恢复分支
+    （_recover_decision_from_prose）与正则兜底分支构造的 TaskResult 可能 task_id/state
+    为空，而 Validator 将其列为 Runtime 层必需字段（缺失即 repairable=False → 直接
+    failed）。adapter 在返回 parsed 结果前经此回填，使恢复成果能过校验。
+    """
+    if result is None:
+        return None
+    if not result.task_id:
+        result.task_id = state_name
+    if not result.state:
+        result.state = state_name
+    if not result.agent:
+        result.agent = agent_name
+    return result

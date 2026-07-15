@@ -14,8 +14,12 @@ import pytest
 from agent_workflow.agents._parse import (
     _recover_decision_from_prose,
     _parse_task_result_text,
+    _backfill_identity,
     _SYNONYM_TABLE,
 )
+from agent_workflow.tasks.result import ExecutionMetadata
+from agent_workflow.validators.task_result import validate
+from agent_workflow.validators.validation_result import RouteShape
 
 
 class TestRecoverDecisionLevel1:
@@ -292,3 +296,161 @@ class TestSynonymTable:
         valid = {"approve", "revise", "reject", "done", "fail", "blocked", "no_op"}
         for phrase, decision in _SYNONYM_TABLE.items():
             assert decision in valid, f"短语 '{phrase}' 映射到非法 decision '{decision}'"
+
+
+class TestBackfillIdentity:
+    """_backfill_identity 回填空运行时身份字段（修复 260714_M21 bug）。"""
+
+    def test_backfill_empty_task_id_state(self):
+        """恢复路径 task_id/state 为空 —→ 回填 state_name。"""
+        text = "决策：done。修订完成。"
+        parsed = _parse_task_result_text(text, allowed_decisions=["done", "fail"])
+        assert parsed is not None
+        # 恢复出的骨架 TaskResult
+        assert parsed.task_id == ""
+        assert parsed.state == ""
+        assert parsed.agent == ""
+        # 回填后
+        result = _backfill_identity(parsed, state_name="plan_refinement", agent_name="claude")
+        assert result.task_id == "plan_refinement"
+        assert result.state == "plan_refinement"
+        assert result.agent == "claude"
+
+    def test_backfill_preserve_model_provided(self):
+        """模型 JSON 中已有的 task_id/state/agent 不覆盖。"""
+        json_text = (
+            '```json\n'
+            '{"schema_version": 1, "task_id": "review_abc", "state": "review_xyz",'
+            '"agent": "deepseek", "status": "success", "decision": "approve", "summary": "ok",'
+            '"execution": {"started_at": "2026-01-01T00:00:00+08:00",'
+            '"finished_at": "2026-01-01T00:01:00+08:00", "exit_code": 0}}\n'
+            '```\n'
+        )
+        parsed = _parse_task_result_text(json_text, allowed_decisions=["approve"])
+        assert parsed is not None
+        # 模型给了非空值
+        assert parsed.task_id == "review_abc"
+        assert parsed.state == "review_xyz"
+        assert parsed.agent == "deepseek"
+        # 回填不覆盖
+        result = _backfill_identity(parsed, state_name="fallback", agent_name="fallback")
+        assert result.task_id == "review_abc"
+        assert result.state == "review_xyz"
+        assert result.agent == "deepseek"
+
+    def test_backfill_none_input(self):
+        """输入 None —→ 返回 None（防御）。"""
+        result = _backfill_identity(None, state_name="s", agent_name="a")
+        assert result is None
+
+    def test_backfill_partial_empty(self):
+        """部分字段空、部分字段有值 —→ 只回填空的。"""
+        text = "决策：done。"
+        parsed = _parse_task_result_text(text, allowed_decisions=["done"])
+        assert parsed is not None
+        # 手动设置一个字段有值
+        parsed.agent = "existing_agent"
+        parsed.task_id = ""
+        parsed.state = ""
+        result = _backfill_identity(parsed, state_name="new_state", agent_name="new_agent")
+        assert result.task_id == "new_state"
+        assert result.state == "new_state"
+        assert result.agent == "existing_agent"  # 不覆盖
+
+
+class TestRecoveryPlusBackfillValidation:
+    """端到端回归：恢复 + 回填 + 重建 execution → 过 Validator（260714_M21 复现）。"""
+
+    def test_recovery_without_backfill_fails_validation(self):
+        """恢复出的骨架 TaskResult 缺 task_id/state —→ Validator 判 repairable=False（bug 复现）。"""
+        text = "经过审查修订完成。决策：done。"
+        parsed = _parse_task_result_text(text, allowed_decisions=["done", "fail"])
+        assert parsed is not None
+        assert parsed.status == "success"
+        assert parsed.decision == "done"
+        exec_meta = parsed.get_execution()
+        assert exec_meta.protocol_origin == "parser"
+        # 骨架缺字段
+        assert parsed.task_id == ""
+        assert parsed.state == ""
+        # 直接交 Validator —→ 必然拒绝
+        route_shape = RouteShape(has_on=True, allowed_decisions=("done", "fail"))
+        vr = validate(parsed.to_dict(), route_shape)
+        assert vr.valid is False
+        assert vr.repairable is False
+        assert any("task_id" in e for e in vr.errors)
+        assert any("state" in e for e in vr.errors)
+
+    def test_recovery_with_backfill_passes_validation(self):
+        """恢复 + 回填 + 重建 execution —→ 过 Validator（bug 修复验证）。"""
+        text = "经过审查修订完成。决策：done。"
+        # ── 1. parser 恢复 ──
+        parsed = _parse_task_result_text(text, allowed_decisions=["done", "fail"])
+        assert parsed is not None
+        assert parsed.decision == "done"
+        prev_exec = parsed.get_execution()
+        assert prev_exec.protocol_origin == "parser"
+        assert prev_exec.recovery is not None
+        # ── 2. adapter 回填身份字段 ──
+        parsed = _backfill_identity(parsed, state_name="plan_refinement", agent_name="claude")
+        assert parsed.task_id == "plan_refinement"
+        assert parsed.state == "plan_refinement"
+        assert parsed.agent == "claude"
+        # ── 3. adapter 重建 execution metadata（保留 protocol_origin / recovery）──
+        from agent_workflow.tasks.result import _now_iso
+        parsed.execution = ExecutionMetadata(
+            started_at=_now_iso(),
+            finished_at=_now_iso(),
+            duration_seconds=0,
+            attempt=1,
+            exit_code=0,
+            pid=12345,
+            protocol_origin=prev_exec.protocol_origin,
+            recovery=prev_exec.recovery,
+        )
+        # ── 4. Validator 校验 ──
+        route_shape = RouteShape(has_on=True, allowed_decisions=("done", "fail"))
+        vr = validate(parsed.to_dict(), route_shape)
+        # 通过！
+        assert vr.valid is True
+        assert vr.repairable is False
+        assert len(vr.errors) == 0
+
+    def test_adapter_pipeline_match_claude_cli(self):
+        """模拟 claude_cli._parse_stream_output 完整链路（含回填）。"""
+        stdout = "审查通过，所有文档已更新。\n\n最终决策：approve。"
+        state_name = "plan_review"
+        agent_name = "claude"
+        allowed_decisions = ["approve", "revise", "reject"]
+        # ── 解析（含恢复）──
+        parsed = _parse_task_result_text(stdout, allowed_decisions=allowed_decisions)
+        assert parsed is not None
+        assert parsed.decision == "approve"
+        assert parsed.get_execution().protocol_origin == "parser"
+        # ── 回填 ──
+        parsed = _backfill_identity(parsed, state_name=state_name, agent_name=agent_name)
+        assert parsed.task_id == state_name
+        assert parsed.state == state_name
+        assert parsed.agent == agent_name
+        # ── 重建 execution（模拟 claude_cli.py:151-160）──
+        prev_exec = parsed.get_execution()
+        from agent_workflow.tasks.result import _now_iso
+        parsed.execution = ExecutionMetadata(
+            started_at=_now_iso(),
+            finished_at=_now_iso(),
+            duration_seconds=330,
+            attempt=1,
+            exit_code=0,
+            pid=10380,
+            protocol_origin=prev_exec.protocol_origin,
+            recovery=prev_exec.recovery,
+        )
+        # ── 校验 ──
+        route_shape = RouteShape(has_on=True, allowed_decisions=tuple(allowed_decisions))
+        vr = validate(parsed.to_dict(), route_shape)
+        assert vr.valid is True
+        assert len(vr.errors) == 0
+        # 协议轴字段被保留
+        assert parsed.get_execution().protocol_origin == "parser"
+        assert parsed.get_execution().recovery is not None
+        assert parsed.get_execution().recovery.method == "regex"

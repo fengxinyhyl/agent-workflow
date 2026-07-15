@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from .base import BaseAgent
-from ._parse import _parse_task_result_text, _extract_task_result_fallback, PACKET_LAST_ASSISTANT_MARKER
+from ._parse import _parse_task_result_text, _extract_task_result_fallback, _backfill_identity, PACKET_LAST_ASSISTANT_MARKER
 from ..context.agent_input import AgentInput
 from ..tasks.result import ExecutionMetadata, TaskResult, _now_iso
 
@@ -261,7 +261,7 @@ class ClaudeCLI(BaseAgent):
                 enable_synonym_recovery=enable_synonym_recovery,
             )
             if parsed is not None:
-                return parsed
+                return _backfill_identity(parsed, state_name=state_name, agent_name=self.name)
 
         # 第二步：fallback 到全局搜索（兼容旧的 text 格式）
         parsed = _parse_task_result_text(
@@ -270,7 +270,7 @@ class ClaudeCLI(BaseAgent):
             enable_synonym_recovery=enable_synonym_recovery,
         )
         if parsed is not None:
-            return parsed
+            return _backfill_identity(parsed, state_name=state_name, agent_name=self.name)
 
         # 第三步：最终 fallback —— 无法解析结构化 TaskResult，
         # 不再伪造 success/done，产出 Runtime 内部瞬时态 invalid_output/None，
