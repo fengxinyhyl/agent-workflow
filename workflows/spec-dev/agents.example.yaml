@@ -5,10 +5,15 @@
 #     cp agents.example.yaml agents.yaml
 # 若不复制，请确保存在 agents.yaml，否则引擎读不到 agent 配置。
 #
-# 节点分工：
-#   claude(default,无Bash)     = 计划/修订计划/总结 —— 纯文档，无需命令
-#   claude-audit(auto,+Bash)   = 代码审查(output_review) —— 动态审查，跑 gofmt/pytest 验证代码
-#   deepseek(auto,+Bash)       = 审计划/执行/改代码/单测验证(validation) —— 需跑 go build/gofmt/pytest
+# 节点分工（两档权限：纯文档档=+Edit无Bash / 动手档=+Edit+Bash+auto）：
+#   claude(Opus,default,+Edit无Bash)         = 计划(planning)/总结(retrospective) —— 纯文档，Edit 用于长文档分块补写，无需 Bash
+#   claude-refine(Sonnet,default,+Edit无Bash) = 计划修订(plan_refinement) —— 改已有计划需 Edit 分块，Sonnet 更快，无需 Bash
+#   claude-audit(Opus,auto,+Edit+Bash)       = 代码审查(output_review) —— 动态审查，跑 gofmt/pytest 验证代码
+#   deepseek(auto,+Edit+Bash)                = 审计划/执行/改代码/单测验证(validation) —— 需跑 go build/gofmt/pytest
+#
+# ⚠️ 纯文档节点(claude/claude-refine)必须含 Edit：Claude Code 内置规则「超 50 行须 Write 骨架+Edit 补块」，
+#    缺 Edit 会导致长文档被迫整份反复重写、分段+造临时文件，曾致 plan_refinement 单轮 30min（见 260715 run 排查）。
+#    但不给这两档 Bash/auto：纯文档节点跑 shell 无意义，auto+Bash 无人值守执行任意命令才是真风险（最小权限）。
 
 agents:
   claude:
@@ -16,9 +21,18 @@ agents:
     command: "claude"
     cwd: "{project_root}"
     permission_mode: default
-    allowed_tools: "Read,Grep,Glob,Write"
+    allowed_tools: "Read,Grep,Glob,Write,Edit"
     timeout_seconds: 3600
-    description: "Claude Opus — 列计划/修订计划/总结"
+    description: "Claude Opus — 列计划/总结"
+
+  claude-refine:
+    provider: claude
+    command: "claude"
+    cwd: "{project_root}"
+    permission_mode: default
+    allowed_tools: "Read,Grep,Glob,Write,Edit"
+    timeout_seconds: 3600
+    description: "Claude Sonnet — 计划修订(plan_refinement)：按 review 清单落地、思考量小，用更快的 Sonnet；wrapper 见 cc-sonnet"
 
   deepseek:
     provider: claude

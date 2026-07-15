@@ -30,36 +30,33 @@
 flowchart TD
     GOAL[/"goal（模块定义）+ project_context"/]
 
-    subgraph PLAN["计划段（列计划 → 审计划 → 按需修订）"]
-        PL["planning<br/>列完整开发计划，不写代码"]
-        PR{{"plan_review<br/>审计划：可行性/需求覆盖/风险/测试（LLM 门）"}}
-        PRF["plan_refinement<br/>逐条回应审核意见 + 完整修订后计划"]
-        PL --> PR
-        PR -->|"revise"| PRF
-        PRF -->|"回到审计划"| PR
-    end
-
-    subgraph EXEC["产出段（执行 → 审结果 → 按需修订）"]
-        EX["execution<br/>按最终计划改代码，记录偏差"]
-        OR{{"output_review<br/>审结果：每条 Issue 附 Acceptance（LLM 门）"}}
-        ORF["output_refinement<br/>按 Verification 实测回报 + 收尾 Contract"]
-        EX --> OR
-        OR -->|"revise"| ORF
-        ORF -->|"回到审结果"| OR
-    end
-
-    subgraph VAL["验证与收尾（确定性手段为核心）"]
-        VD{{"validation<br/>跑单元测试核对验收点（LLM 门）"}}
-        RETRO["retrospective<br/>对照验收点复盘 + 经验沉淀"]
-        VD --> RETRO
-    end
-
     GOAL --> PL
+
+    PL["planning<br/>列完整开发计划，不写代码"]
+    PR{{"plan_review<br/>审计划：可行性/需求覆盖/风险/测试（LLM 门）"}}
+    PRF["plan_refinement<br/>逐条回应审核意见 + 完整修订后计划"]
+
+    PL --> PR
+    PR -->|"revise"| PRF
+    PRF -->|"回到审计划"| PR
     PR -->|"approve"| EX
+
+    EX["execution<br/>按最终计划改代码，记录偏差"]
+    OR{{"output_review<br/>审结果：每条 Issue 附 Acceptance（LLM 门）"}}
+    ORF["output_refinement<br/>按 Verification 实测回报 + 收尾 Contract"]
+
+    EX --> OR
+    OR -->|"revise"| ORF
+    ORF -->|"回到审结果"| OR
     OR -->|"approve"| VD
+
+    VD{{"validation<br/>跑单元测试核对验收点（LLM 门）"}}
+    RETRO["retrospective<br/>对照验收点复盘 + 经验沉淀"]
+
     VD -->|"revise"| ORF
     VD -->|"approve"| RETRO
     RETRO --> DONE(["done"])
+
     PR -.->|"reject"| FAIL(["failed"])
     OR -.->|"reject / NEED-HUMAN"| FAIL
     VD -.->|"reject"| FAIL

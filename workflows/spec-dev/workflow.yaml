@@ -112,11 +112,22 @@ tasks:
 
       输出 plan_refinement_doc，必须包含:
       1. 每条 review 意见的采纳/延后/不采纳结论
-      2. 完整的修订后计划
+      2. 完整的修订后计划 —— execution 直接以本产物 latest 为权威计划执行，
+         故必须自包含、无歧义，不能让下游自行合并 diff。
       3. 相对上一版 plan_doc 的关键变更说明
-      后续节点会读取 plan_doc:latest 与 plan_refinement_doc:all，因此本节点不依赖多产物输出。
+
+      【落盘约束 —— 必须小块分批写，违反会导致 agent 崩溃/空转】
+      本产物一定会超过单次工具调用输出上限。血泪教训（260715 run 两次失败）：
+      - 试图一次 Write 整份 → JSON 参数被截断，反复 InputValidationError，空转 55 分钟零产出；
+      - 试图一次 Write “前半部分” → 半份仍超限，tool_use 吐到一半 agent 进程崩溃（agent_crash）。
+      唯一可靠写法（强制）：
+      1. 第一次用 Write 建文件，**只写第一块，至多约 150 行**；
+      2. 之后每次用 Edit **向同一文件追加下一块，每块至多约 150 行**，直到完整；
+      3. 严禁把整份或半份塞进单次 Write/Edit —— 单次调用内容越大越必然被截断或崩溃。
+      注意：小块分批写目标产物文件是要求；被禁止的只是“写临时文件再合并”“整份重写多遍”这类
+      把同一份内容生成两遍的浪费，与小块追加无关。
       使用 done 表示本轮修订完成。
-    agent: claude
+    agent: claude-refine
     input:
       - plan_doc:latest
       - plan_review_doc:latest

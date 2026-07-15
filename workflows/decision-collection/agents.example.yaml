@@ -15,7 +15,7 @@ agents:
     command: "claude"
     cwd: "{project_root}"
     permission_mode: default
-    allowed_tools: "Read,Grep,Glob,Write"
+    allowed_tools: "Read,Grep,Glob,Write,Edit"
     timeout_seconds: 3600
     description: "Claude Opus - 抽取裁决项、生成等待说明和最终裁决包"
 
@@ -24,7 +24,7 @@ agents:
     command: "claude"
     cwd: "{project_root}"
     permission_mode: default
-    allowed_tools: "Read,Grep,Glob,Write"
+    allowed_tools: "Read,Grep,Glob,Write,Edit"
     timeout_seconds: 3600
     description: "DeepSeek - 审查裁决项质量和字段边界"
 
