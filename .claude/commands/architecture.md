@@ -68,6 +68,38 @@ attach
   └─ data_model            ← 同一 lineage_id，独立 artifact_id
 ```
 
+```mermaid
+flowchart TD
+    SEED[/"final_requirement（Seed Artifact）"/]
+
+    SEED --> COL
+
+    COL["collect<br/>含 validate，双查找模式：--seed 定位 / --from 聚合"]
+    LG{{"lineage 决策闸门<br/>唯一语义决策点：复用 or 新建 lineage（Human Gate）"}}
+
+    COL --> LG
+    LG -->|"输出 lineage_id"| WF
+
+    WF["workflow<br/>系统架构设计工作流（含内部机器门 / 人类闸门 / 冻结 / DDL 投影）"]
+
+    WF --> DONE(["done"])
+
+    DONE --> ATT
+
+    ATT[/"attach：final_architecture + data_model<br/>盖同一 lineage_id + 各自 artifact_id"/]
+
+    classDef model fill:#e8f0fe,stroke:#4285f4,color:#1a1a1a;
+    classDef human fill:#fde8e8,stroke:#e8710a,color:#1a1a1a;
+    classDef artifact fill:#f3e8fd,stroke:#a142f4,color:#1a1a1a;
+    classDef term fill:#f1f3f4,stroke:#5f6368,color:#1a1a1a;
+    class COL,WF model;
+    class LG human;
+    class SEED,ATT artifact;
+    class DONE term;
+```
+
+> 图例：🟦 确定性/执行节点（collect / workflow / attach）｜ 🟥 人类闸门（六边形，lineage 决策，⏸ 表示进程暂停等确认）｜ 🟪 产物（斜角框，Seed 输入 / attach 输出）｜ ⬜ 终态。workflow 内部的机器门（evaluation_gate）与人类闸门（architecture_review）细节见下方章节，此处折叠为单节点。
+
 **两个独立 artifact，同一 lineage_id**（R2）：`final_architecture` 与 `data_model` 各自拥有独立的 `artifact_id = <run_id>:<artifact_name>`，共享同一 `lineage_id`。collect 下游按 lineage_id 聚合时二者都返回，靠 `artifact_name` 区分。
 
 ### lineage 决策闸门（human gate）

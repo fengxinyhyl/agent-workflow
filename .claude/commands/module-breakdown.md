@@ -82,6 +82,64 @@ Object Lifecycle Pipeline 收尾（与 attach 同级，纵向轴）
   ④ 回写 module-registry.md       → 编号 + 模块清单 + 依赖/波次一览（收尾必做，与 ledger 同级）
 ```
 
+```mermaid
+flowchart TD
+    SEED[/"final_requirement（Seed Artifact）"/]
+
+    SEED --> COL
+
+    COL["collect<br/>含 validate，双查找模式：--lineage 聚合 / --seed 定位"]
+    WF["workflow<br/>模块拆解工作流（含 coverage_gate 脚本门 / mapping_check 人类闸门 / finalize 锁定）"]
+
+    COL --> WF
+    WF --> DONE(["done"])
+
+    DONE --> ATT
+
+    ATT[/"attach：module_breakdown ← propagate 同 lineage_id<br/>（横向 Development Pipeline 收尾）"/]
+
+    ATT -. "纵向 · 演化轴" .-> P1["① split_and_register --propose<br/>拆多文件（slug 继承 / 新模块打 warn）+ 差分 → ledger_proposal.md"]
+    P1 --> P1b["①' 给全新模块补 Mxx-slug 命名（人工 · 收尾必做）"]
+    P1b --> P2{"② human gate：逐条填 type/prev<br/>（唯一语义决策点）"}
+    P2 --> P3["③ split_and_register --apply<br/>append ledger + lineage.py --check 阻断门"]
+    P3 --> P4["④ 回写 module-registry.md<br/>编号 + 模块清单 + 依赖/波次一览"]
+
+    classDef model fill:#e8f0fe,stroke:#4285f4,color:#1a1a1a;
+    classDef human fill:#fde8e8,stroke:#e8710a,color:#1a1a1a;
+    classDef artifact fill:#f3e8fd,stroke:#a142f4,color:#1a1a1a;
+    classDef term fill:#f1f3f4,stroke:#5f6368,color:#1a1a1a;
+    class COL,WF,P1,P1b,P3,P4 model;
+    class P2 human;
+    class SEED,ATT artifact;
+    class DONE term;
+```
+
+> 图例：🟦 确定性/执行节点（collect / workflow / attach / 演化轴机器步）｜ 🟥 人类闸门（六边形/菱形，②填 type/prev，唯一语义决策点）｜ 🟪 产物（斜角框，Seed 输入 / attach 输出）｜ ⬜ 终态。横向主干 `collect → workflow → attach` 与纵向**演化轴**（①→④，Object Lifecycle Pipeline 收尾）正交，缺一条轴即断更。workflow 内部的 `decompose / coverage_gate / mapping_check ⏸ / finalize` 细节见下方章节，此处折叠为单节点；本命令**无 lineage 决策闸门**（lineage 在 Architecture Command 已决定）。
+
+### 工作流 `done` 之后命令层做了什么（导读）
+
+工作流本身（`decompose → coverage_gate → mapping_check → finalize → done`）只产出并锁定 `module_breakdown.md` 草案——此时它还是"裸"的：没盖 lineage 身份，也没进任何账本。`done` 之后命令层还要手动接**两条正交的轴**，缺任一条账本/注册表就与实际产物对不上（断更）：
+
+**横向轴 · 把这次需求做完（1 步）**
+
+- **attach**：给 `module_breakdown.md` 盖 frontmatter（lineage_id + artifact_id），使下游 collect 能按 lineage 聚合到它。lineage_id 是**继承**架构命令定的那个，非新建。
+
+**纵向轴 · 把本次产出串进历史演化账本 `ledger.jsonl`（4 步）**
+
+| 步 | 谁做 | 动作 | 产出 |
+|----|------|------|------|
+| **①** `--propose` | 机器（确定性） | 按 `### Mxx` 把大文件拆成一个个 `Mxx-slug.md`；扫全部版本目录 + 账本做差分，找出"新增/消失"模块 | `ledger_proposal.md`（每条 `type: null` 待填） |
+| **①'** 补命名 | 人 | 全新模块拆出来是裸 `Mxx.md` 且打了 `[warn]`，手工改成 `Mxx-<英文slug>.md` | 命名一致 |
+| **②** human gate | **人（唯一语义决策点）** | 逐条填 `type/prev`：全新对象留 null；旧版延续填 `iterates-from`；拆分/合并/取代填对应类型 | 填好的 proposal |
+| **③** `--apply` | 机器（确定性） | 读填好的 proposal → append 进 `ledger.jsonl` → 自动跑 `lineage.py --check` 阻断门 | ledger 更新 |
+| **④** 回写 registry | 人/机器 | 更新 `module-registry.md`：编号 + 模块清单 + 依赖/波次一览 | 注册表更新 |
+
+**为什么演化轴要拆成 ①②③ 不能塌成一步**：① 拆文件+差分、③ 写账本，是纯确定性脚本；② 判断"这个新模块是全新的还是旧模块的延续/拆分/取代"属于**演进关系语义**，禁止机器自动推断，必须人拍板——这是红线。
+
+**三个最易漏的"必做"**：① attach 后演化轴不是可选（即便零差分也跑一遍确认，否则 ledger 会成孤儿）；② ①' 给全新模块补英文命名是收尾必做人工步；③ ④ 回写 registry 与 ledger 同级（ledger 记演化边、registry 供人查号查依赖，两个都得更）。
+
+> 以下各章节是上述每一步的操作手册：`attach` 见「attach：propagate 同 lineage_id」，①→④ 见「Object Lifecycle Pipeline 收尾」与「④ 回写模块注册表」，mapping_check 暂停后的 continue/reject 见「Human Gate」。
+
 **对齐 requirement-understanding 二元 gate 范式**（2026-07-09 重构）：引擎 human gate 只支持
 approve/reject，无 revise 回流。人工审查若需修订，把修订指令写进裁决文件经 `continue --input`
 注入，由 finalize 一次性应用后锁定——不再有独立 refine 节点。
