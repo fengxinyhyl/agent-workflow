@@ -1505,6 +1505,7 @@ class Runner:
                 artifact_path=artifact_path,
                 run_root=self.context.run_root,
                 artifact_name=artifact_name,
+                staging_root=self.context.project_root,
             )
             if result.ok:
                 self.context.promote_artifact(artifact_name, artifact_path)
